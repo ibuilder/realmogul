@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Packaging (Phase 6)
+.buildozer/
+bin/
+*.apk
+*.aab
+*.ipa
+
+# Generated screenshots / spike artifacts
+ui/_shots/
+ui/_entitlements.json
+spikes/*.png
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Packed art is generated from assets_src/ by tools/pack_atlas.py
+# (keep assets/ source-controlled once real art lands; ignore intermediates)
+*.tmp

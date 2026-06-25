@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flet-spike",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "spikes.flet_slice", "--web"],
+      "port": 8552
+    }
+  ]
+}
