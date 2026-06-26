@@ -24,6 +24,16 @@ so `engine/` and `ui/` never import device code. On desktop/web you get
 `MockBillingProvider`; the whole purchase → verify → entitle flow already works
 there and is covered by tests.
 
+## Feasibility — verified
+
+`buildozer` **1.6.0 installs fine**, but on Windows its Android target is
+unavailable (`buildozer android debug` → "Unknown command/target android") — the
+Android target requires a POSIX/Linux environment with the SDK/NDK/Java toolchain.
+This is expected and is why the build runs in a Linux container (or WSL / a Linux
+CI runner), never on the dev box directly. The `buildozer.spec` is in place and
+bundles the engine/ui/education/monetization/nativebridge layers plus the
+synthesized audio (`assets/audio/*.wav` via the `wav` ext + `assets/*` pattern).
+
 ## Android (Dockerized buildozer)
 
 ```bash

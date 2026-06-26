@@ -13,6 +13,8 @@ from typing import Any
 from engine.assets.asset_class import AssetClassId
 from engine.assets.property import Property
 from engine.economy.market import MarketState
+from engine.economy_balance.constants import LendingTerms
+from engine.progression.advisors import AdvisorId
 from engine.progression.objectives import Objective, ObjectiveKind
 from engine.progression.opportunities import Opportunity
 from engine.progression.session import (
@@ -27,7 +29,7 @@ from engine.world.lot import Lot
 from engine.world.town import Town
 from engine.world.zoning import Zoning
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 # --------------------------------------------------------------------- encode
@@ -147,6 +149,18 @@ def session_to_state(session: GameSession) -> dict[str, Any]:
         "opportunity_rate": session.opportunity_rate,
         "opp_counter": session._opp_counter,
         "opp_rng": _rng_to(session.opp_rng),
+        # Derived levers (career + advisors bake into these) so a reload matches
+        # exactly without re-deriving from career/advisor effects.
+        "advisors": sorted(a.value for a in session.advisors),
+        "decay_mult": session.decay_mult,
+        "build_speed": session.build_speed,
+        "selling_cost_rate": session.selling_cost_rate,
+        "lending": {
+            "max_ltv": session.lending.max_ltv,
+            "min_dscr": session.lending.min_dscr,
+            "term_months": session.lending.term_months,
+            "base_spread": session.lending.base_spread,
+        },
         "town": {
             "name": session.town.name,
             "market": _market_to(session.town.market),
@@ -301,5 +315,18 @@ def state_to_session(state: dict[str, Any]) -> GameSession:
     if opp is not None:
         session.opp_rng = GameRNG.from_state(
             opp["seed"], (opp["version"], tuple(opp["internal"]), opp["gauss_next"])
+        )
+    # Restore derived levers (career + advisor effects already baked in).
+    session.advisors = {AdvisorId(a) for a in state.get("advisors", [])}
+    session.decay_mult = state.get("decay_mult", session.decay_mult)
+    session.build_speed = state.get("build_speed", session.build_speed)
+    session.selling_cost_rate = state.get("selling_cost_rate", session.selling_cost_rate)
+    lend = state.get("lending")
+    if lend is not None:
+        session.lending = LendingTerms(
+            max_ltv=lend["max_ltv"],
+            min_dscr=lend["min_dscr"],
+            term_months=lend["term_months"],
+            base_spread=lend["base_spread"],
         )
     return session

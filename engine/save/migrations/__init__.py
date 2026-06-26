@@ -60,10 +60,19 @@ def migrate_4_to_5(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def migrate_5_to_6(state: dict[str, Any]) -> dict[str, Any]:
+    """v5 -> v6: persist the derived levers (advisors + career bake into these).
+    Old saves had none hired and default levers — backfill neutrally."""
+    state.setdefault("advisors", [])
+    state.setdefault("decay_mult", 1.0)
+    return state
+
+
 # version N -> (N+1) transform. Extend as the schema evolves.
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: migrate_1_to_2,
     2: migrate_2_to_3,
     3: migrate_3_to_4,
     4: migrate_4_to_5,
+    5: migrate_5_to_6,
 }

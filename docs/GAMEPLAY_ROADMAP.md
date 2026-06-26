@@ -39,23 +39,24 @@ spiral). Campaign targets were recalibrated to a robust reference agent.
 - **2.2 Fast early hook + visible momentum.** Front-load the first win; animate
   bars filling and cash piling so progress is always legible.
 
-## Wave 3 — Depth & variety
+## Wave 3 — Depth & variety ✅ DONE
 
-- **3.1 Advisors.** (todo) Hire specialists (deal scout, banker, GC) for passive
-  perks — a light version of REIT Tycoon's C-suite, layered on our careers.
-  (`session.opportunity_rate` already exists as a hook a "deal scout" can scale.)
-- **3.2 Random opportunities.** ✅ Distressed deals (buy below market) and
-  unsolicited buyout offers (sell above market) appear and expire — real decisions,
-  not just optimization. Generated on a *separate* RNG stream so they never perturb
-  the deterministic market the campaign is balanced against. Persisted in saves (v5).
-- **3.3 Deeper, per-class upgrade trees.** (todo)
+- **3.1 Advisors.** ✅ Hire 4 specialists for passive perks — Deal Scout (more
+  deal flow), Banker (+LTV), GC (faster builds), Property Manager (slower decay).
+  Layered on careers; one-time cash; effects persisted in saves.
+- **3.2 Random opportunities.** ✅ Distressed deals + buyout offers on a *separate*
+  RNG stream (never perturbs the balanced market). Persisted in saves.
+- **3.3 Deeper, per-class upgrade trees.** ✅ Added façade, solar, smart-home,
+  signage (retail), co-working (office), loading dock (industrial); a per-property
+  "Upgrades" picker surfaces what each building can still take.
 
 ## Wave 4 — Juice & feel
 
-- **4.1 Cash counter roll-up.** ✅ The HUD cash readout eases toward its target
-  instead of snapping — a small but satisfying momentum cue.
-- **4.2 Audio hooks.** (todo) Layered SFX: UI tick, cash chime, build-complete.
-- **4.3 Win/lose flourishes.** (todo)
+- **4.1 Cash counter roll-up.** ✅ The HUD cash readout eases toward its target.
+- **4.2 Audio hooks.** ✅ Real synthesized SFX (`tools/gen_audio.py` → tick / cash /
+  build-complete / win / lose) loaded via SDL2; defensive no-op if no audio backend.
+- **4.3 Win/lose flourishes.** ✅ Win/lose stings play on the endgame popup.
+  (Visual flourish — confetti/shake — still todo.)
 
 ## Execution order
 

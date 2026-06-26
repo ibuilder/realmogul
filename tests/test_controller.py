@@ -42,7 +42,13 @@ def test_buy_then_own_panel():
     c.select("sfr-3")
     deal = c.selected_deal()
     assert deal.subtitle == "You own this"
-    assert {a.action_id for a in deal.actions} == {"renovate", "repair", "refinance", "sell"}
+    assert {a.action_id for a in deal.actions} == {
+        "renovate",
+        "open_upgrades",
+        "repair",
+        "refinance",
+        "sell",
+    }
 
 
 def test_renovation_completion_updates_the_displayed_panel():

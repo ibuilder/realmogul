@@ -33,6 +33,7 @@ from kivy.uix.scrollview import ScrollView  # noqa: E402
 from kivy.uix.textinput import TextInput  # noqa: E402
 
 from education.glossary import get_term  # noqa: E402
+from engine.assets.upgrades import UPGRADE_CATALOG  # noqa: E402
 from engine.progression.campaign import build_level_one  # noqa: E402
 from monetization import (  # noqa: E402
     MockBillingProvider,
@@ -40,8 +41,12 @@ from monetization import (  # noqa: E402
     probability_disclosure,
 )
 from ui import theme  # noqa: E402
+from ui.audio import SoundBank  # noqa: E402
 from ui.board import BoardWidget  # noqa: E402
 from ui.controller import GameController  # noqa: E402
+
+# Actions that are "work" (a crew starts something) vs money moving.
+_WORK_ACTIONS = set(UPGRADE_CATALOG) | {"repair", "amenity_park", "develop"}
 
 Window.size = (1120, 700)
 Window.clearcolor = theme.BG
@@ -80,6 +85,7 @@ class RealMogulApp(App):
             save_path=Path("ui/_entitlements.json"),
         )
         self.monet.reconcile()
+        self.sounds = SoundBank()
 
     # ----------------------------------------------------------------- build
     def build(self):
@@ -116,6 +122,11 @@ class RealMogulApp(App):
         )
         self.btn_deals.bind(on_release=lambda *_: self.open_opportunities())
         self.hud_bar.add_widget(self.btn_deals)
+        btn_advisors = Button(
+            text="Advisors", size_hint=(None, 1), width=100, background_color=theme.ACCENT_DIM
+        )
+        btn_advisors.bind(on_release=lambda *_: self.open_advisors())
+        self.hud_bar.add_widget(btn_advisors)
         self.lbl_mastery = _hud_label("", color=theme.TEXT_MUTED, size=12)
         self.hud_bar.add_widget(self.lbl_mastery)
         btn_store = Button(
@@ -279,17 +290,92 @@ class RealMogulApp(App):
         self.refresh()
 
     def _on_action(self, action_id: str, *_):
+        if action_id == "open_upgrades":
+            self.open_upgrades()
+            return
         self.controller.do_action(action_id)
+        self.sounds.play("build_done" if action_id in _WORK_ACTIONS else "cash")
+        self.refresh()
+
+    def open_upgrades(self):
+        lid = self.controller.selected_lot_id
+        if lid is None:
+            return
+        body = BoxLayout(orientation="vertical", spacing=6, padding=8)
+        for opt in self.controller.available_upgrades(lid):
+            row = BoxLayout(orientation="vertical", size_hint_y=None, height=52, padding=(2, 2))
+            top = BoxLayout(orientation="horizontal", size_hint_y=None, height=30)
+            top.add_widget(_hud_label(opt.label, size=14, bold=True))
+            apply = Button(
+                text="Build",
+                size_hint=(None, 1),
+                width=90,
+                disabled=not opt.enabled,
+                background_color=theme.ACCENT if opt.enabled else theme.PANEL_BG_ALT,
+            )
+            apply.bind(on_release=partial(self._apply_upgrade, opt.upgrade_id))
+            top.add_widget(apply)
+            row.add_widget(top)
+            row.add_widget(_hud_label(opt.summary, color=theme.TEXT_MUTED, size=12))
+            body.add_widget(row)
+        self._upgrades_popup = Popup(
+            title="Upgrades — value-add this building", content=body, size_hint=(0.7, 0.8)
+        )
+        self._upgrades_popup.open()
+
+    def _apply_upgrade(self, upgrade_id: str, *_):
+        self.controller.do_action(upgrade_id)
+        self.sounds.play("build_done")
+        popup = getattr(self, "_upgrades_popup", None)
+        if popup is not None:
+            popup.dismiss()
+        self.refresh()
+
+    def open_advisors(self):
+        body = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        for adv in self.controller.advisors():
+            row = BoxLayout(orientation="vertical", size_hint_y=None, height=58, padding=(2, 2))
+            head = BoxLayout(orientation="horizontal", size_hint_y=None, height=30)
+            head.add_widget(_hud_label(f"{adv.label}  ({adv.cost})", size=14, bold=True))
+            hire = Button(
+                text="Hired" if adv.hired else "Hire",
+                size_hint=(None, 1),
+                width=90,
+                disabled=adv.hired,
+                background_color=theme.PANEL_BG_ALT if adv.hired else theme.ACCENT,
+            )
+            hire.bind(on_release=partial(self._hire_advisor, adv.advisor_id))
+            head.add_widget(hire)
+            row.add_widget(head)
+            row.add_widget(_hud_label(adv.blurb, color=theme.TEXT_MUTED, size=12))
+            body.add_widget(row)
+        self._advisors_popup = Popup(
+            title="Advisors — hire specialists for passive perks",
+            content=body,
+            size_hint=(0.7, 0.7),
+        )
+        self._advisors_popup.open()
+
+    def _hire_advisor(self, advisor_id: str, *_):
+        self.controller.hire_advisor(advisor_id)
+        self.sounds.play("cash")
+        popup = getattr(self, "_advisors_popup", None)
+        if popup is not None:
+            popup.dismiss()
         self.refresh()
 
     def on_advance(self):
         self.controller.advance_month()
+        self.sounds.play("tick")
         self.refresh()
-        if self.controller.status != "playing":
+        status = self.controller.status
+        if status != "playing":
+            self.sounds.play("win" if status == "won" else "lose")
             self.show_endgame()
 
     def _on_hire(self):
         self.controller.hire_crew()
+        self.sounds.play("cash")
         self.refresh()
 
     def _open_term(self, term_id: str, *_):
@@ -419,6 +505,7 @@ class RealMogulApp(App):
 
     def _take_opportunity(self, opp_id: str, *_):
         self.controller.accept_opportunity(opp_id)
+        self.sounds.play("cash")
         popup = getattr(self, "_opps_popup", None)
         if popup is not None:
             popup.dismiss()

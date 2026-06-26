@@ -30,6 +30,7 @@ from engine.finance.loans import (
     remaining_balance,
     underwrite,
 )
+from engine.progression.advisors import AdvisorId, get_advisor
 from engine.progression.career import Career
 from engine.progression.objectives import GameMetrics, Objective, all_met
 from engine.progression.opportunities import Opportunity
@@ -135,6 +136,8 @@ class GameSession:
         self.opportunities: list[Opportunity] = []
         self._opp_counter = 0
         self.opportunity_rate = 1.0  # advisors can scale how often deals appear
+        self.decay_mult = 1.0  # advisors can slow condition decay
+        self.advisors: set[AdvisorId] = set()
 
     # ------------------------------------------------------------------ metrics
     @property
@@ -167,6 +170,22 @@ class GameSession:
         self.cash -= cost
         self.crews += 1
         self.log.append(f"m{self.month}: hired a crew (now {self.crews})")
+        return True
+
+    def hire_advisor(self, advisor_id: AdvisorId) -> bool:
+        """Bring a specialist on staff for a one-time fee, applying their perk."""
+        if advisor_id in self.advisors:
+            return False
+        adv = get_advisor(advisor_id)
+        if adv.hire_cost > self.cash:
+            return False
+        self.cash -= adv.hire_cost
+        self.advisors.add(advisor_id)
+        self.lending = replace(self.lending, max_ltv=self.lending.max_ltv + adv.ltv_bonus)
+        self.build_speed *= adv.build_speed_mult
+        self.decay_mult *= adv.decay_mult
+        self.opportunity_rate *= adv.opportunity_mult
+        self.log.append(f"m{self.month}: hired {adv.name} ({adv.role})")
         return True
 
     def net_worth(self) -> float:
@@ -581,7 +600,7 @@ class GameSession:
                 continue
             worn = max(
                 DEFAULT_UPKEEP.condition_floor,
-                h.property_.condition - DEFAULT_UPKEEP.condition_decay_per_month,
+                h.property_.condition - DEFAULT_UPKEEP.condition_decay_per_month * self.decay_mult,
             )
             if worn != h.property_.condition:
                 self.holdings[lot_id] = replace(h, property_=replace(h.property_, condition=worn))
