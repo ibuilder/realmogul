@@ -26,7 +26,7 @@ from engine.world.lot import Lot
 from engine.world.town import Town
 from engine.world.zoning import Zoning
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 # --------------------------------------------------------------------- encode
@@ -35,6 +35,7 @@ def _market_to(m: MarketState) -> dict[str, Any]:
         "interest_rate": m.interest_rate,
         "cap_rate": m.cap_rate,
         "demand_index": m.demand_index,
+        "base_rate": m.base_rate,
     }
 
 
@@ -59,6 +60,7 @@ def _lot_to(lot: Lot) -> dict[str, Any]:
         "owned": lot.owned,
         "for_sale": lot.for_sale,
         "list_price_premium": lot.list_price_premium,
+        "amenity": lot.amenity,
     }
 
 
@@ -80,6 +82,7 @@ def _pending_to(w: PendingWork) -> dict[str, Any]:
         "upgrade_id": w.upgrade_id,
         "asset_class": w.asset_class.value if w.asset_class else None,
         "units": w.units,
+        "amenity_type": w.amenity_type,
     }
 
 
@@ -115,12 +118,14 @@ def session_to_state(session: GameSession) -> dict[str, Any]:
         "cash": session.cash,
         "month": session.month,
         "month_limit": session.month_limit,
+        "crews": session.crews,
         "won": session.won,
         "lost": session.lost,
         "log": list(session.log),
         "town": {
             "name": session.town.name,
             "market": _market_to(session.town.market),
+            "appeal": session.town.appeal,
             "lots": {lid: _lot_to(lot) for lid, lot in session.town.lots.items()},
         },
         "holdings": {lid: _holding_to(h) for lid, h in session.holdings.items()},
@@ -141,6 +146,7 @@ def _market_from(d: dict[str, Any]) -> MarketState:
         interest_rate=d["interest_rate"],
         cap_rate=d["cap_rate"],
         demand_index=d.get("demand_index", 1.0),
+        base_rate=d.get("base_rate"),
     )
 
 
@@ -165,6 +171,7 @@ def _lot_from(d: dict[str, Any]) -> Lot:
         owned=d["owned"],
         for_sale=d["for_sale"],
         list_price_premium=d["list_price_premium"],
+        amenity=d.get("amenity"),
     )
 
 
@@ -187,6 +194,7 @@ def _pending_from(d: dict[str, Any]) -> PendingWork:
         upgrade_id=d["upgrade_id"],
         asset_class=AssetClassId(ac) if ac else None,
         units=d["units"],
+        amenity_type=d.get("amenity_type"),
     )
 
 
@@ -225,6 +233,7 @@ def state_to_session(state: dict[str, Any]) -> GameSession:
         name=town_d["name"],
         market=_market_from(town_d["market"]),
         lots={lid: _lot_from(lot) for lid, lot in town_d["lots"].items()},
+        appeal=town_d.get("appeal", 0.0),
     )
     rng_d = state["rng"]
     rng = GameRNG.from_state(
@@ -240,6 +249,7 @@ def state_to_session(state: dict[str, Any]) -> GameSession:
         rng=rng,
     )
     session.month = state["month"]
+    session.crews = state.get("crews", session.crews)
     session.won = state["won"]
     session.lost = state["lost"]
     session.log = list(state["log"])

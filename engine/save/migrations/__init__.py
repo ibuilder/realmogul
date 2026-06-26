@@ -35,8 +35,24 @@ def migrate_2_to_3(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def migrate_3_to_4(state: dict[str, Any]) -> dict[str, Any]:
+    """v3 -> v4: gameplay gained worker crews, amenity-driven town appeal, and
+    condition decay. Backfill the new fields with neutral defaults so old saves
+    load unchanged (3 crews, no appeal, no amenities)."""
+    state.setdefault("crews", 3)
+    town = state.get("town", {})
+    town.setdefault("appeal", 0.0)
+    for lot in town.get("lots", {}).values():
+        lot.setdefault("amenity", None)
+    for holding in state.get("holdings", {}).values():
+        for work in holding.get("pending", []):
+            work.setdefault("amenity_type", None)
+    return state
+
+
 # version N -> (N+1) transform. Extend as the schema evolves.
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: migrate_1_to_2,
     2: migrate_2_to_3,
+    3: migrate_3_to_4,
 }

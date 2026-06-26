@@ -41,9 +41,8 @@ def cap_from_rate(interest_rate: float, market: MarketDefaults = DEFAULT_MARKET)
 def step_interest_rate(
     rng: GameRNG,
     current_rate: float,
+    anchor: float,
     market: MarketDefaults = DEFAULT_MARKET,
-    *,
-    extra_shock: float = 0.0,
 ) -> tuple[float, bool]:
     """Advance the rate one step: random drift + a chance of a discrete shock.
 
@@ -57,12 +56,14 @@ def step_interest_rate(
     — not the noise — carry the lesson.
     """
     drift = rng.uniform(-market.rate_drift_std, market.rate_drift_std)
-    reversion = (market.base_interest_rate - current_rate) * 0.03
+    # Revert toward the current regime ``anchor`` (which scripted twists move), so a
+    # rate cut/hike is a lasting change while the random noise stays anchored.
+    reversion = (anchor - current_rate) * 0.04
     shocked = rng.chance(market.rate_shock_prob)
     shock = 0.0
     if shocked:
         shock = market.rate_shock_size * (1.0 if rng.chance(0.5) else -1.0)
-    new_rate = max(RATE_FLOOR, current_rate + drift + reversion + shock + extra_shock)
+    new_rate = max(RATE_FLOOR, current_rate + drift + reversion + shock)
     return new_rate, shocked
 
 
@@ -75,7 +76,7 @@ def simulate_rate_path(
     path: list[RateState] = []
     rate = market.base_interest_rate
     for step in range(steps):
-        rate, shocked = step_interest_rate(rng, rate, market)
+        rate, shocked = step_interest_rate(rng, rate, market.base_interest_rate, market)
         path.append(
             RateState(
                 step=step,

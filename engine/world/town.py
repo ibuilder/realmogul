@@ -15,9 +15,13 @@ class Town:
     name: str
     market: MarketState
     lots: dict[str, Lot] = field(default_factory=dict)
+    appeal: float = 0.0  # permanent demand lift from player-built amenities
 
     def with_market(self, market: MarketState) -> Town:
         return replace(self, market=market)
+
+    def with_appeal(self, appeal: float) -> Town:
+        return replace(self, appeal=appeal)
 
     def with_lot(self, lot: Lot) -> Town:
         new_lots = dict(self.lots)

@@ -82,6 +82,7 @@ class HudView:
     progress: float  # 0..1 toward the (first) objective
     status: str  # playing | won | lost
     message: str
+    crews: str = ""  # "free/total" worker crews
 
 
 @dataclass(frozen=True)
@@ -148,7 +149,7 @@ class GameController:
     def board(self) -> list[TileView]:
         positions = self._layout()
         tiles: list[TileView] = []
-        market = self.session.market
+        market = self.session.effective_market
         for lot_id, lot in sorted(self.session.town.lots.items()):
             col, row = positions[lot_id]
             holding = self.session.holdings.get(lot_id)
@@ -233,7 +234,16 @@ class GameController:
             progress=progress,
             status=s.status,
             message=self.message,
+            crews=f"{s.free_crews}/{s.crews}",
         )
+
+    @staticmethod
+    def _work_hint(busy: bool, free_crew: bool) -> str:
+        if busy:
+            return "already working here"
+        if not free_crew:
+            return "no free crew"
+        return ""
 
     # -------------------------------------------------------------- finance preview
     def _finance_preview(self, lot_id: str) -> FinancePreview | None:
@@ -276,7 +286,7 @@ class GameController:
         lot = self.session.town.lots.get(lid)
         if lot is None:
             return None
-        market = self.session.market
+        market = self.session.effective_market  # includes amenity-driven demand
         holding = self.session.holdings.get(lid)
 
         # Owned, built property.
@@ -295,14 +305,24 @@ class GameController:
                 ("Equity", money(value - balance)),
                 ("Cash flow / mo", money(prop.annual_noi(market) / 12 - ds / 12)),
             ]
-            renovating = bool(holding.pending)
-            can_renovate = not renovating and "renovate" in self._affordable_upgrades(prop)
+            busy = bool(holding.pending)
+            free_crew = self.session.free_crews > 0
+            ready = not busy and free_crew
+            can_renovate = ready and "renovate" in self._affordable_upgrades(prop)
+            worn = prop.condition < 0.94
+            can_repair = ready and worn and self.session.cash >= 9_000
             actions = [
                 ActionView(
                     "renovate",
                     "Renovate ($25k, 3mo)",
                     can_renovate,
-                    "already renovating" if renovating else "",
+                    self._work_hint(busy, free_crew),
+                ),
+                ActionView(
+                    "repair",
+                    "Repair ($9k, 1mo)",
+                    can_repair,
+                    "" if worn else "in good shape",
                 ),
                 ActionView("refinance", "Cash-out refi", True),
                 ActionView("sell", "Sell", True),
@@ -314,13 +334,24 @@ class GameController:
                 actions=actions,
             )
 
-        # Owned empty land.
-        if lot.owned and lot.property_ is None:
+        # Owned vacant land.
+        if self.session._is_vacant_land(lid):
+            free_crew = self.session.free_crews > 0
             return DealView(
                 title=lid.upper(),
                 subtitle=f"Vacant land · {lot.zoning.value}",
-                rows=[("Zoning", lot.zoning.value), ("Status", "ready to develop")],
-                actions=[ActionView("develop", "Build 1 SFR", True)],
+                rows=[("Zoning", lot.zoning.value), ("Status", "ready to build")],
+                actions=[
+                    ActionView(
+                        "develop", "Build 1 SFR", free_crew, self._work_hint(False, free_crew)
+                    ),
+                    ActionView(
+                        "amenity_park",
+                        "Build park ($35k)",
+                        free_crew and self.session.cash >= 35_000,
+                        "lifts demand portfolio-wide",
+                    ),
+                ],
             )
 
         # For-sale property.
@@ -428,12 +459,31 @@ class GameController:
             self.coach = tip_for("first_deal")
             self._seen_first_deal = True
 
+    def hire_crew(self) -> None:
+        if self.session.hire_crew():
+            self.message = f"Hired a crew — now {self.session.crews}."
+        else:
+            self.message = "Can't afford another crew."
+
     def do_action(self, action_id: str) -> None:
         lid = self.selected_lot_id
         if lid is None:
             return
         if action_id == "buy":
             self._do_buy(lid)
+        elif action_id == "repair":
+            self.message = (
+                "Repair started — restoring condition."
+                if self.session.repair(lid)
+                else "Can't repair now."
+            )
+        elif action_id == "amenity_park":
+            if self.session.build_amenity(lid, "park"):
+                self.tracker.record("demand")
+                self.coach = tip_for("boom_town")
+                self.message = "Park underway — it'll lift demand everywhere."
+            else:
+                self.message = "Can't build a park here."
         elif action_id == "renovate":
             if self.session.upgrade(lid, "renovate"):
                 self.tracker.record("value_add")

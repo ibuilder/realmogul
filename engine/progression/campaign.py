@@ -61,6 +61,7 @@ def _market_at(interest_rate: float, demand: float = 1.0) -> MarketState:
         interest_rate=interest_rate,
         cap_rate=cap_from_rate(interest_rate, DEFAULT_MARKET),
         demand_index=demand,
+        base_rate=interest_rate,
     )
 
 
@@ -87,22 +88,22 @@ def build_level_one() -> CampaignLevel:
     town = Town(name="Sleepy Pines", market=market, lots=lots)
 
     objectives = [
-        Objective(ObjectiveKind.NET_WORTH, 320_000, "Grow net worth to $320k"),
+        Objective(ObjectiveKind.NET_WORTH, 200_000, "Grow net worth to $200k"),
     ]
     events = [
         TwistEvent(
-            8, TwistKind.RATE_CUT, magnitude=0.010, message="The Fed cuts rates — values tick up."
+            8, TwistKind.RATE_CUT, magnitude=0.018, message="The Fed cuts rates — values tick up."
         ),
         TwistEvent(
             20,
             TwistKind.BOOM_TOWN,
-            magnitude=0.25,
+            magnitude=0.35,
             message="A big employer moves to town — demand surges.",
         ),
         TwistEvent(
             34,
             TwistKind.RATE_CUT,
-            magnitude=0.010,
+            magnitude=0.018,
             message="Another rate cut — cap rates compress.",
         ),
     ]
@@ -165,7 +166,7 @@ def build_level_two() -> CampaignLevel:
         starting_cash=320_000,
         month_limit=96,
         town=town,
-        objectives=[Objective(ObjectiveKind.NET_WORTH, 480_000, "Grow net worth to $480k")],
+        objectives=[Objective(ObjectiveKind.NET_WORTH, 460_000, "Grow net worth to $460k")],
         seed=20260602,
         events=events,
         career=CareerId.LANDLORD,
@@ -216,7 +217,7 @@ def build_level_three() -> CampaignLevel:
         starting_cash=520_000,
         month_limit=108,
         town=town,
-        objectives=[Objective(ObjectiveKind.NET_WORTH, 1_300_000, "Grow net worth to $1.3M")],
+        objectives=[Objective(ObjectiveKind.NET_WORTH, 780_000, "Grow net worth to $780k")],
         seed=20260603,
         events=events,
         career=CareerId.SYNDICATOR,
@@ -260,7 +261,7 @@ def build_level_four() -> CampaignLevel:
         starting_cash=300_000,
         month_limit=120,
         town=town,
-        objectives=[Objective(ObjectiveKind.NET_WORTH, 600_000, "Grow net worth to $600k")],
+        objectives=[Objective(ObjectiveKind.NET_WORTH, 560_000, "Grow net worth to $560k")],
         seed=20260604,
         events=events,
         career=CareerId.DEVELOPER,

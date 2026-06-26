@@ -23,10 +23,14 @@ class Lot:
     owned: bool = False
     for_sale: bool = True
     list_price_premium: float = 0.05  # asking price sits this far above intrinsic value
+    amenity: str | None = None  # a built civic structure (park/transit/plaza)
 
     @property
     def is_empty(self) -> bool:
-        return self.property_ is None
+        return self.property_ is None and self.amenity is None
+
+    def with_amenity(self, amenity: str) -> Lot:
+        return replace(self, amenity=amenity)
 
     def rezoned(self, zoning: Zoning) -> Lot:
         return replace(self, zoning=zoning)

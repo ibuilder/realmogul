@@ -27,6 +27,11 @@ class MarketState:
     interest_rate: float
     cap_rate: float
     demand_index: float = 1.0
+    base_rate: float | None = None  # the current rate regime; rates revert toward it
+
+    @property
+    def regime(self) -> float:
+        return self.base_rate if self.base_rate is not None else self.interest_rate
 
     @classmethod
     def at_base(cls, market: MarketDefaults = DEFAULT_MARKET) -> MarketState:
@@ -34,6 +39,7 @@ class MarketState:
             interest_rate=market.base_interest_rate,
             cap_rate=cap_from_rate(market.base_interest_rate, market),
             demand_index=1.0,
+            base_rate=market.base_interest_rate,
         )
 
     def stepped(
@@ -48,14 +54,20 @@ class MarketState:
 
         ``rate_shock`` and ``demand_delta`` are how events feed in: a rate-hike
         twist passes a positive ``rate_shock``; a boom-town twist passes a
-        positive ``demand_delta``. Demand mean-reverts gently toward 1.0.
+        positive ``demand_delta``.
+
+        A rate twist shifts the *regime* (``base_rate``) permanently, so the cut/
+        hike lasts; the rate then wanders around that new regime. Demand is the
+        opposite — a boom is transient, easing back toward 1.0 over months.
         """
-        new_rate, _ = step_interest_rate(rng, self.interest_rate, market, extra_shock=rate_shock)
-        reversion = (1.0 - self.demand_index) * 0.10
+        new_regime = max(0.005, self.regime + rate_shock)
+        new_rate, _ = step_interest_rate(rng, self.interest_rate, new_regime, market)
+        reversion = (1.0 - self.demand_index) * 0.04
         new_demand = max(0.5, min(1.8, self.demand_index + reversion + demand_delta))
         return replace(
             self,
             interest_rate=new_rate,
             cap_rate=cap_from_rate(new_rate, market),
             demand_index=new_demand,
+            base_rate=new_regime,
         )

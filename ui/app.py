@@ -104,6 +104,13 @@ class RealMogulApp(App):
         obj_box.add_widget(self.progress)
         for w in (self.lbl_month, self.lbl_cash, self.lbl_networth, obj_box):
             self.hud_bar.add_widget(w)
+        self.lbl_crews = _hud_label("", color=theme.TEXT_MUTED, size=12)
+        self.hud_bar.add_widget(self.lbl_crews)
+        btn_hire = Button(
+            text="Hire crew", size_hint=(None, 1), width=90, background_color=theme.ACCENT_DIM
+        )
+        btn_hire.bind(on_release=lambda *_: self._on_hire())
+        self.hud_bar.add_widget(btn_hire)
         self.lbl_mastery = _hud_label("", color=theme.TEXT_MUTED, size=12)
         self.hud_bar.add_widget(self.lbl_mastery)
         btn_store = Button(
@@ -164,6 +171,7 @@ class RealMogulApp(App):
         self.lbl_objective.text = h.objective
         self.progress.value = h.progress
         self.lbl_mastery.text = f"Mastery {self.controller.mastery():.0%}"
+        self.lbl_crews.text = f"Crews {h.crews}"
         self._refresh_coach(h.message)
         self.board.set_tiles(self.controller.board())
         self._refresh_deal()
@@ -261,6 +269,10 @@ class RealMogulApp(App):
         self.refresh()
         if self.controller.status != "playing":
             self.show_endgame()
+
+    def _on_hire(self):
+        self.controller.hire_crew()
+        self.refresh()
 
     def _open_term(self, term_id: str, *_):
         term = get_term(term_id)
