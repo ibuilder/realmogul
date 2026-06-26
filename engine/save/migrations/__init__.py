@@ -50,9 +50,20 @@ def migrate_3_to_4(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def migrate_4_to_5(state: dict[str, Any]) -> dict[str, Any]:
+    """v4 -> v5: gameplay gained random opportunities (distressed deals / buyouts)
+    on a separate RNG stream. Old saves simply have none yet; the loader re-forks
+    the opportunity stream from the main RNG when ``opp_rng`` is absent."""
+    state.setdefault("opportunities", [])
+    state.setdefault("opportunity_rate", 1.0)
+    state.setdefault("opp_counter", 0)
+    return state
+
+
 # version N -> (N+1) transform. Extend as the schema evolves.
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: migrate_1_to_2,
     2: migrate_2_to_3,
     3: migrate_3_to_4,
+    4: migrate_4_to_5,
 }

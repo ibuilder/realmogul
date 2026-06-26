@@ -19,6 +19,7 @@ from engine.economy_balance.asset_economics import economics_for
 from engine.economy_balance.constants import (
     DEFAULT_AMENITIES,
     DEFAULT_LENDING,
+    DEFAULT_OPPORTUNITIES,
     DEFAULT_UPKEEP,
     DEFAULT_WORKFORCE,
     LendingTerms,
@@ -31,9 +32,12 @@ from engine.finance.loans import (
 )
 from engine.progression.career import Career
 from engine.progression.objectives import GameMetrics, Objective, all_met
+from engine.progression.opportunities import Opportunity
 from engine.rng import GameRNG
 from engine.world.events import TwistEvent, TwistKind
+from engine.world.lot import Lot
 from engine.world.town import Town
+from engine.world.zoning import Zoning
 
 CLOSING_COST_RATE = 0.03
 SELLING_COST_RATE = 0.06
@@ -125,6 +129,12 @@ class GameSession:
         self.log: list[str] = []
         self.won = False
         self.lost = False
+        # Random opportunities run on their OWN rng stream so they never perturb
+        # the deterministic market path the campaign is balanced against.
+        self.opp_rng = rng.fork("opportunities")
+        self.opportunities: list[Opportunity] = []
+        self._opp_counter = 0
+        self.opportunity_rate = 1.0  # advisors can scale how often deals appear
 
     # ------------------------------------------------------------------ metrics
     @property
@@ -395,6 +405,99 @@ class GameSession:
         self.log.append(f"m{self.month}: broke ground on a {amenity_type} at {lot_id}")
         return True
 
+    # ------------------------------------------------------------ opportunities
+    def _generate_opportunity(self) -> None:
+        cfg = DEFAULT_OPPORTUNITIES
+        if not self.opp_rng.chance(cfg.per_month_prob * self.opportunity_rate):
+            return
+        eligible = [
+            lid for lid, h in self.holdings.items() if h.property_ is not None and not h.pending
+        ]
+        self._opp_counter += 1
+        oid = f"opp-{self._opp_counter}"
+        expires = self.month + cfg.expires_in_months
+
+        if eligible and self.opp_rng.chance(0.5):  # an unsolicited buyout offer
+            lot_id = self.opp_rng.choice(eligible)
+            premium = self.opp_rng.uniform(*cfg.buyout_premium)
+            opp = Opportunity(
+                id=oid,
+                kind="buyout",
+                expires_month=expires,
+                headline=f"Buyer offers {premium:.0%} over market for {lot_id}",
+                lot_id=lot_id,
+                premium=premium,
+            )
+        else:  # a distressed listing comes to market cheap
+            asset_class, units, zoning = self.opp_rng.choice(
+                [
+                    (AssetClassId.SFR, 1, Zoning.RESIDENTIAL),
+                    (AssetClassId.MULTIFAMILY, 4, Zoning.RESIDENTIAL),
+                    (AssetClassId.RETAIL, 3, Zoning.COMMERCIAL),
+                ]
+            )
+            condition = self.opp_rng.uniform(0.6, 0.85)
+            discount = self.opp_rng.uniform(*cfg.distressed_discount)
+            prop = Property(asset_class=asset_class, units=units, condition=condition, age_years=25)
+            self.town = self.town.with_lot(
+                Lot(id=oid, zoning=zoning, property_=prop, list_price_premium=-discount)
+            )
+            opp = Opportunity(
+                id=oid,
+                kind="distressed",
+                expires_month=expires,
+                headline=f"Distressed {asset_class.value} listed {discount:.0%} below market",
+                lot_id=oid,
+                discount=discount,
+                asset_class=asset_class.value,
+                units=units,
+                condition=condition,
+            )
+        self.opportunities.append(opp)
+        self.log.append(f"m{self.month}: opportunity — {opp.headline}")
+
+    def accept_opportunity(self, opp_id: str) -> bool:
+        opp = next((o for o in self.opportunities if o.id == opp_id), None)
+        if opp is None:
+            return False
+        ok = (
+            self.acquire(opp.lot_id)
+            if opp.kind == "distressed"
+            else self._sell_at_premium(opp.lot_id, opp.premium)
+        )
+        if ok:
+            self.opportunities = [o for o in self.opportunities if o.id != opp_id]
+        return ok
+
+    def _sell_at_premium(self, lot_id: str, premium: float) -> bool:
+        h = self.holdings.get(lot_id)
+        if h is None or h.property_ is None:
+            return False
+        value = h.property_.value(self.effective_market)
+        payoff = h.loan.balance_at(self.month) if h.loan else 0.0
+        proceeds = value * (1.0 + premium) - payoff  # a direct offer: no broker fee
+        self.cash += proceeds
+        lot = self.town.lots[lot_id]
+        self.town = self.town.with_lot(replace(lot, owned=False, for_sale=False))
+        del self.holdings[lot_id]
+        self.log.append(f"m{self.month}: accepted buyout on {lot_id} for {proceeds:,.0f}")
+        return True
+
+    def _expire_opportunities(self) -> None:
+        still: list[Opportunity] = []
+        for o in self.opportunities:
+            if o.expires_month > self.month:
+                still.append(o)
+                continue
+            # An unbought distressed listing leaves the market.
+            if o.kind == "distressed":
+                lot = self.town.lots.get(o.lot_id)
+                if lot is not None and not lot.owned:
+                    lots = dict(self.town.lots)
+                    lots.pop(o.lot_id, None)
+                    self.town = replace(self.town, lots=lots)
+        self.opportunities = still
+
     # ------------------------------------------------------------------ turn
     def _apply_events_for(self, month: int) -> tuple[float, float]:
         """Fire events scheduled for ``month``; return aggregate market perturbation."""
@@ -505,6 +608,8 @@ class GameSession:
             self.cash += monthly_noi - monthly_ds
 
         self._decay_conditions()
+        self._expire_opportunities()
+        self._generate_opportunity()
         self._resolve_endgame()
 
     def _resolve_endgame(self) -> None:

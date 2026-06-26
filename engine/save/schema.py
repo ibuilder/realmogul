@@ -14,6 +14,7 @@ from engine.assets.asset_class import AssetClassId
 from engine.assets.property import Property
 from engine.economy.market import MarketState
 from engine.progression.objectives import Objective, ObjectiveKind
+from engine.progression.opportunities import Opportunity
 from engine.progression.session import (
     GameSession,
     Holding,
@@ -26,7 +27,7 @@ from engine.world.lot import Lot
 from engine.world.town import Town
 from engine.world.zoning import Zoning
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 # --------------------------------------------------------------------- encode
@@ -111,6 +112,26 @@ def _event_to(e: TwistEvent) -> dict[str, Any]:
     }
 
 
+def _rng_to(rng) -> dict[str, Any]:
+    version, internal, gauss = rng.getstate()
+    return {"seed": rng.seed, "version": version, "internal": list(internal), "gauss_next": gauss}
+
+
+def _opportunity_to(o: Opportunity) -> dict[str, Any]:
+    return {
+        "id": o.id,
+        "kind": o.kind,
+        "expires_month": o.expires_month,
+        "headline": o.headline,
+        "lot_id": o.lot_id,
+        "discount": o.discount,
+        "premium": o.premium,
+        "asset_class": o.asset_class,
+        "units": o.units,
+        "condition": o.condition,
+    }
+
+
 def session_to_state(session: GameSession) -> dict[str, Any]:
     """Serialize the full session into a plain dict (the schema body)."""
     rng_version, internal, gauss = session.rng.getstate()
@@ -122,6 +143,10 @@ def session_to_state(session: GameSession) -> dict[str, Any]:
         "won": session.won,
         "lost": session.lost,
         "log": list(session.log),
+        "opportunities": [_opportunity_to(o) for o in session.opportunities],
+        "opportunity_rate": session.opportunity_rate,
+        "opp_counter": session._opp_counter,
+        "opp_rng": _rng_to(session.opp_rng),
         "town": {
             "name": session.town.name,
             "market": _market_to(session.town.market),
@@ -226,6 +251,21 @@ def _event_from(d: dict[str, Any]) -> TwistEvent:
     )
 
 
+def _opportunity_from(d: dict[str, Any]) -> Opportunity:
+    return Opportunity(
+        id=d["id"],
+        kind=d["kind"],
+        expires_month=d["expires_month"],
+        headline=d["headline"],
+        lot_id=d["lot_id"],
+        discount=d.get("discount", 0.0),
+        premium=d.get("premium", 0.0),
+        asset_class=d.get("asset_class"),
+        units=d.get("units", 1),
+        condition=d.get("condition", 0.8),
+    )
+
+
 def state_to_session(state: dict[str, Any]) -> GameSession:
     """Rebuild a live session from a (current-version) state dict."""
     town_d = state["town"]
@@ -254,4 +294,12 @@ def state_to_session(state: dict[str, Any]) -> GameSession:
     session.lost = state["lost"]
     session.log = list(state["log"])
     session.holdings = {lid: _holding_from(h) for lid, h in state["holdings"].items()}
+    session.opportunities = [_opportunity_from(o) for o in state.get("opportunities", [])]
+    session.opportunity_rate = state.get("opportunity_rate", 1.0)
+    session._opp_counter = state.get("opp_counter", 0)
+    opp = state.get("opp_rng")
+    if opp is not None:
+        session.opp_rng = GameRNG.from_state(
+            opp["seed"], (opp["version"], tuple(opp["internal"]), opp["gauss_next"])
+        )
     return session

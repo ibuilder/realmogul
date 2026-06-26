@@ -111,6 +111,11 @@ class RealMogulApp(App):
         )
         btn_hire.bind(on_release=lambda *_: self._on_hire())
         self.hud_bar.add_widget(btn_hire)
+        self.btn_deals = Button(
+            text="Deals", size_hint=(None, 1), width=100, background_color=theme.GOLD
+        )
+        self.btn_deals.bind(on_release=lambda *_: self.open_opportunities())
+        self.hud_bar.add_widget(self.btn_deals)
         self.lbl_mastery = _hud_label("", color=theme.TEXT_MUTED, size=12)
         self.hud_bar.add_widget(self.lbl_mastery)
         btn_store = Button(
@@ -155,8 +160,20 @@ class RealMogulApp(App):
         coach_bar.add_widget(self.lbl_coach)
         main.add_widget(coach_bar)
 
+        # Juice: the cash readout rolls up/down toward its target instead of jumping.
+        self._cash_shown = float(self.controller.hud().cash_value)
+        self._cash_target = self._cash_shown
+        Clock.schedule_interval(self._tick_cash, 1 / 30.0)
+
         self.refresh()
         return root
+
+    def _tick_cash(self, dt):
+        if abs(self._cash_target - self._cash_shown) < 1:
+            self._cash_shown = self._cash_target
+        else:
+            self._cash_shown += (self._cash_target - self._cash_shown) * min(1.0, dt * 7.0)
+        self.lbl_cash.text = f"Cash ${self._cash_shown:,.0f}"
 
     def on_start(self):
         if self._shot:
@@ -166,7 +183,8 @@ class RealMogulApp(App):
     def refresh(self):
         h = self.controller.hud()
         self.lbl_month.text = f"Month {h.month}/{h.month_limit}"
-        self.lbl_cash.text = f"Cash {h.cash}"
+        self._cash_target = float(h.cash_value)  # animated by _tick_cash
+        self.btn_deals.text = f"Deals ({h.deals})" if h.deals else "Deals"
         self.lbl_networth.text = f"Net worth {h.net_worth}"
         self.lbl_objective.text = h.objective
         self.progress.value = h.progress
@@ -377,6 +395,33 @@ class RealMogulApp(App):
             f"Purchased {product_id}." if outcome.ok else f"Purchase failed: {outcome.error}"
         )
         rebuild()
+        self.refresh()
+
+    def open_opportunities(self):
+        opps = self.controller.opportunities()
+        body = BoxLayout(orientation="vertical", spacing=8, padding=10)
+        if not opps:
+            body.add_widget(_hud_label("No deals on the table right now.", color=theme.TEXT_MUTED))
+        else:
+            for opp in opps:
+                row = BoxLayout(orientation="horizontal", size_hint_y=None, height=48, spacing=8)
+                row.add_widget(_hud_label(opp.headline, size=13))
+                take = Button(
+                    text="Take", size_hint=(None, 1), width=90, background_color=theme.ACCENT
+                )
+                take.bind(on_release=partial(self._take_opportunity, opp.opp_id))
+                row.add_widget(take)
+                body.add_widget(row)
+        self._opps_popup = Popup(
+            title="Opportunities — act before they're gone", content=body, size_hint=(0.7, 0.6)
+        )
+        self._opps_popup.open()
+
+    def _take_opportunity(self, opp_id: str, *_):
+        self.controller.accept_opportunity(opp_id)
+        popup = getattr(self, "_opps_popup", None)
+        if popup is not None:
+            popup.dismiss()
         self.refresh()
 
     def open_explain(self):

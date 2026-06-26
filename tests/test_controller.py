@@ -121,3 +121,13 @@ def test_glossary_accessible_through_controller():
     c = _fresh()
     assert len(c.glossary()) == len(c.glossary(""))
     assert any(t.id == "dscr" for t in c.glossary("coverage"))
+
+
+def test_opportunities_surface_and_can_be_taken():
+    c = _fresh()
+    c.session.opportunity_rate = 100.0  # force a deal to appear
+    c.advance_month()
+    opps = c.opportunities()
+    assert opps and c.hud().deals == len(opps)
+    c.accept_opportunity(opps[0].opp_id)
+    assert "seized" in c.message.lower() or "couldn't" in c.message.lower()

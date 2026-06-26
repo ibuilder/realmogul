@@ -80,6 +80,16 @@ class AmenityDefaults:
     )
 
 
+@dataclass(frozen=True)
+class OpportunityDefaults:
+    """Surprise deals that break the optimization monotony (Wave 3)."""
+
+    per_month_prob: float = 0.07  # chance a fresh opportunity appears each month
+    distressed_discount: tuple = (0.10, 0.28)  # buy below market by this fraction
+    buyout_premium: tuple = (0.08, 0.22)  # an offer above market by this fraction
+    expires_in_months: int = 3  # act before it's gone
+
+
 # Default bundles the rest of the engine imports.
 DEFAULT_LENDING = LendingTerms()
 DEFAULT_MARKET = MarketDefaults()
@@ -87,3 +97,4 @@ DEFAULT_OPEX = OpexAssumptions()
 DEFAULT_WORKFORCE = WorkforceDefaults()
 DEFAULT_UPKEEP = UpkeepDefaults()
 DEFAULT_AMENITIES = AmenityDefaults()
+DEFAULT_OPPORTUNITIES = OpportunityDefaults()

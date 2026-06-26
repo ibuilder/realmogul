@@ -41,17 +41,21 @@ spiral). Campaign targets were recalibrated to a robust reference agent.
 
 ## Wave 3 — Depth & variety
 
-- **3.1 Advisors.** Hire specialists (deal scout, banker, GC) for passive perks —
-  a light version of REIT Tycoon's C-suite, layered on our careers.
-- **3.2 Random opportunities.** Distressed deals, unsolicited buyout offers, and
-  tenant requests that appear and expire — decisions, not just optimization.
-- **3.3 Deeper, per-class upgrade trees.**
+- **3.1 Advisors.** (todo) Hire specialists (deal scout, banker, GC) for passive
+  perks — a light version of REIT Tycoon's C-suite, layered on our careers.
+  (`session.opportunity_rate` already exists as a hook a "deal scout" can scale.)
+- **3.2 Random opportunities.** ✅ Distressed deals (buy below market) and
+  unsolicited buyout offers (sell above market) appear and expire — real decisions,
+  not just optimization. Generated on a *separate* RNG stream so they never perturb
+  the deterministic market the campaign is balanced against. Persisted in saves (v5).
+- **3.3 Deeper, per-class upgrade trees.** (todo)
 
 ## Wave 4 — Juice & feel
 
-- **4.1 Cash-collection pop + counter roll-up** (squash/stretch, coins piling).
-- **4.2 Audio hooks** (layered SFX: UI tick, cash chime, build-complete flourish).
-- **4.3 Win/lose flourishes.**
+- **4.1 Cash counter roll-up.** ✅ The HUD cash readout eases toward its target
+  instead of snapping — a small but satisfying momentum cue.
+- **4.2 Audio hooks.** (todo) Layered SFX: UI tick, cash chime, build-complete.
+- **4.3 Win/lose flourishes.** (todo)
 
 ## Execution order
 

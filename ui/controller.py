@@ -83,6 +83,8 @@ class HudView:
     status: str  # playing | won | lost
     message: str
     crews: str = ""  # "free/total" worker crews
+    cash_value: float = 0.0  # numeric, for the animated counter
+    deals: int = 0  # active opportunities
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,13 @@ class DealView:
     subtitle: str
     rows: list[tuple[str, str]] = field(default_factory=list)
     actions: list[ActionView] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class OpportunityView:
+    opp_id: str
+    headline: str
+    kind: str  # "distressed" | "buyout"
 
 
 @dataclass(frozen=True)
@@ -235,6 +244,8 @@ class GameController:
             status=s.status,
             message=self.message,
             crews=f"{s.free_crews}/{s.crews}",
+            cash_value=s.cash,
+            deals=len(s.opportunities),
         )
 
     @staticmethod
@@ -464,6 +475,16 @@ class GameController:
             self.message = f"Hired a crew — now {self.session.crews}."
         else:
             self.message = "Can't afford another crew."
+
+    def opportunities(self) -> list[OpportunityView]:
+        return [OpportunityView(o.id, o.headline, o.kind) for o in self.session.opportunities]
+
+    def accept_opportunity(self, opp_id: str) -> None:
+        if self.session.accept_opportunity(opp_id):
+            self.tracker.record("irr")  # seizing a deal is a timing decision
+            self.message = "Deal seized!"
+        else:
+            self.message = "Couldn't take that deal."
 
     def do_action(self, action_id: str) -> None:
         lid = self.selected_lot_id
