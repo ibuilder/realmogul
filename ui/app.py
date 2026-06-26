@@ -1,11 +1,12 @@
-"""Real Mogul — Kivy desktop app (Phase 3 vertical slice).
+"""Real Mogul — Kivy desktop app.
 
-One playable campaign level with placeholder art: an isometric board, a live
-deal/finance panel, build timers, and the "Explain this deal" overlay showing
-real engine numbers. The views are thin — every decision routes through
-``GameController`` (Kivy-free, tested).
+The playable client: a status bar, an isometric board, a live deal/finance panel,
+mentor coaching, a store, advisors, opportunities, and the "Explain this deal"
+overlay — all rendering real engine numbers. The views stay thin; every decision
+routes through ``GameController`` (Kivy-free, tested). Layout is a status bar on
+top, board + deal panel in the middle, a coach strip, and an action toolbar.
 
-Play:      python -m ui
+Play:       python -m ui
 Screenshot: python -m ui --shot   (captures a scripted sequence to ui/_shots/)
 """
 
@@ -53,8 +54,25 @@ from ui.controller import GameController  # noqa: E402
 # Actions that are "work" (a crew starts something) vs money moving.
 _WORK_ACTIONS = set(UPGRADE_CATALOG) | {"repair", "amenity_park", "develop"}
 
-Window.size = (1120, 700)
+Window.size = (1200, 760)
 Window.clearcolor = theme.BG
+
+
+def _flat_button(text: str, color, *, width: int | None = None, font_size: int = 14) -> Button:
+    """A flat, modern button (no default gradient texture)."""
+    btn = Button(
+        text=text,
+        background_normal="",
+        background_down="",
+        background_color=color,
+        font_size=font_size,
+        bold=True,
+        color=theme.TEXT,
+    )
+    if width is not None:
+        btn.size_hint_x = None
+        btn.width = width
+    return btn
 
 
 def _panel(widget: BoxLayout, color) -> BoxLayout:
@@ -117,88 +135,126 @@ class RealMogulApp(App):
             self._save_path.write_text(save_to_json(self.controller.session, saved_at=time.time()))
 
     # ----------------------------------------------------------------- build
+    def _metric(self, caption: str, width: int, value_color=theme.TEXT):
+        """A status pill: a small uppercase caption over a bold value."""
+        box = BoxLayout(orientation="vertical", size_hint=(None, 1), width=width, spacing=0)
+        cap = Label(
+            text=caption,
+            font_size=10,
+            bold=True,
+            color=theme.TEXT_MUTED,
+            halign="left",
+            valign="bottom",
+        )
+        cap.bind(size=cap.setter("text_size"))
+        val = Label(
+            text="", font_size=18, bold=True, color=value_color, halign="left", valign="top"
+        )
+        val.bind(size=val.setter("text_size"))
+        box.add_widget(cap)
+        box.add_widget(val)
+        return box, val
+
+    def _make_status_bar(self):
+        bar = _panel(
+            BoxLayout(
+                orientation="horizontal",
+                size_hint=(1, None),
+                height=58,
+                padding=(16, 8),
+                spacing=22,
+            ),
+            theme.STATUS_BG,
+        )
+        month_box, self.lbl_month = self._metric("MONTH", 78)
+        cash_box, self.lbl_cash = self._metric("CASH", 130, theme.GOLD)
+        nw_box, self.lbl_networth = self._metric("NET WORTH", 130)
+        crews_box, self.lbl_crews = self._metric("CREWS", 60)
+        mastery_box, self.lbl_mastery = self._metric("MASTERY", 78)
+        for w in (month_box, cash_box, nw_box, crews_box, mastery_box):
+            bar.add_widget(w)
+        # Objective + progress, right-aligned and given real width.
+        obj = BoxLayout(orientation="vertical", size_hint=(0.42, 1), spacing=4)
+        self.lbl_objective = Label(
+            text="",
+            font_size=12,
+            bold=True,
+            color=theme.TEXT,
+            halign="left",
+            valign="middle",
+            size_hint_y=None,
+            height=20,
+        )
+        self.lbl_objective.bind(size=self.lbl_objective.setter("text_size"))
+        prog_row = BoxLayout(orientation="horizontal", size_hint=(1, None), height=14, spacing=8)
+        self.progress = ProgressBar(max=1.0)
+        self.lbl_progress_pct = Label(
+            text="", font_size=11, bold=True, color=theme.ACCENT, size_hint=(None, 1), width=42
+        )
+        prog_row.add_widget(self.progress)
+        prog_row.add_widget(self.lbl_progress_pct)
+        obj.add_widget(BoxLayout(size_hint=(1, None), height=4))  # top spacer to center
+        obj.add_widget(self.lbl_objective)
+        obj.add_widget(prog_row)
+        obj.add_widget(BoxLayout())  # bottom spacer
+        bar.add_widget(obj)
+        return bar
+
+    def _make_toolbar(self):
+        bar = _panel(
+            BoxLayout(
+                orientation="horizontal", size_hint=(1, None), height=50, padding=(12, 7), spacing=8
+            ),
+            theme.TOOLBAR_BG,
+        )
+        self.btn_deals = _flat_button("Deals", theme.GOLD, width=104)
+        self.btn_deals.color = (0.1, 0.1, 0.1, 1)
+        self.btn_deals.bind(on_release=lambda *_: self.open_opportunities())
+        specs = [
+            ("Hire crew", self._on_hire),
+            ("Advisors", self.open_advisors),
+            ("Store", self.open_store),
+            ("The Closet", self.open_glossary),
+            ("Explain deal", self.open_explain),
+        ]
+        bar.add_widget(self.btn_deals)
+        for text, cb in specs:
+            btn = _flat_button(text, theme.BTN_BG, width=112)
+            btn.bind(on_release=lambda _w, c=cb: c())
+            bar.add_widget(btn)
+        bar.add_widget(BoxLayout())  # flexible spacer pushes the primary action right
+        btn_next = _flat_button("Advance month  ▸", theme.PRIMARY, width=190, font_size=15)
+        btn_next.bind(on_release=lambda *_: self.on_advance())
+        bar.add_widget(btn_next)
+        return bar
+
     def build(self):
         root = FloatLayout()
         main = BoxLayout(orientation="vertical", size_hint=(1, 1))
         root.add_widget(main)
 
-        # HUD bar
-        self.hud_bar = _panel(
-            BoxLayout(
-                orientation="horizontal", size_hint=(1, None), height=64, padding=12, spacing=18
-            ),
-            theme.PANEL_BG_ALT,
-        )
-        self.lbl_month = _hud_label("", bold=True)
-        self.lbl_cash = _hud_label("", color=theme.GOLD, bold=True)
-        self.lbl_networth = _hud_label("", bold=True)
-        self.lbl_objective = _hud_label("", color=theme.TEXT_MUTED, size=13)
-        self.progress = ProgressBar(max=1.0, size_hint=(0.5, None), height=18)
-        obj_box = BoxLayout(orientation="vertical", spacing=2)
-        obj_box.add_widget(self.lbl_objective)
-        obj_box.add_widget(self.progress)
-        for w in (self.lbl_month, self.lbl_cash, self.lbl_networth, obj_box):
-            self.hud_bar.add_widget(w)
-        self.lbl_crews = _hud_label("", color=theme.TEXT_MUTED, size=12)
-        self.hud_bar.add_widget(self.lbl_crews)
-        btn_hire = Button(
-            text="Hire crew", size_hint=(None, 1), width=90, background_color=theme.ACCENT_DIM
-        )
-        btn_hire.bind(on_release=lambda *_: self._on_hire())
-        self.hud_bar.add_widget(btn_hire)
-        self.btn_deals = Button(
-            text="Deals", size_hint=(None, 1), width=100, background_color=theme.GOLD
-        )
-        self.btn_deals.bind(on_release=lambda *_: self.open_opportunities())
-        self.hud_bar.add_widget(self.btn_deals)
-        btn_advisors = Button(
-            text="Advisors", size_hint=(None, 1), width=100, background_color=theme.ACCENT_DIM
-        )
-        btn_advisors.bind(on_release=lambda *_: self.open_advisors())
-        self.hud_bar.add_widget(btn_advisors)
-        self.lbl_mastery = _hud_label("", color=theme.TEXT_MUTED, size=12)
-        self.hud_bar.add_widget(self.lbl_mastery)
-        btn_store = Button(
-            text="Store", size_hint=(None, 1), width=80, background_color=theme.ACCENT_DIM
-        )
-        btn_store.bind(on_release=lambda *_: self.open_store())
-        self.hud_bar.add_widget(btn_store)
-        btn_glossary = Button(
-            text="The Closet", size_hint=(None, 1), width=110, background_color=theme.ACCENT_DIM
-        )
-        btn_glossary.bind(on_release=lambda *_: self.open_glossary())
-        btn_explain = Button(
-            text="Explain deal", size_hint=(None, 1), width=120, background_color=theme.ACCENT_DIM
-        )
-        btn_explain.bind(on_release=lambda *_: self.open_explain())
-        btn_next = Button(
-            text="Advance month", size_hint=(None, 1), width=140, background_color=theme.ACCENT
-        )
-        btn_next.bind(on_release=lambda *_: self.on_advance())
-        self.hud_bar.add_widget(btn_glossary)
-        self.hud_bar.add_widget(btn_explain)
-        self.hud_bar.add_widget(btn_next)
-        main.add_widget(self.hud_bar)
+        main.add_widget(self._make_status_bar())
 
         # Middle: board + deal panel
         mid = BoxLayout(orientation="horizontal", size_hint=(1, 1))
         self.board = BoardWidget(on_tile=self.on_tile, size_hint=(0.62, 1))
         mid.add_widget(self.board)
-
         self.deal_panel = _panel(
-            BoxLayout(orientation="vertical", size_hint=(0.38, 1), padding=14, spacing=8),
+            BoxLayout(orientation="vertical", size_hint=(0.38, 1), padding=0, spacing=0),
             theme.PANEL_BG,
         )
         mid.add_widget(self.deal_panel)
         main.add_widget(mid)
 
-        # Coach bar — mentor tips and status messages live here.
+        # Coach strip — mentor tips and status messages.
         self.lbl_coach = _hud_label("", color=theme.TEXT, size=13)
         coach_bar = _panel(
-            BoxLayout(size_hint=(1, None), height=52, padding=(14, 6)), theme.PANEL_BG_ALT
+            BoxLayout(size_hint=(1, None), height=40, padding=(16, 6)), theme.PANEL_BG_ALT
         )
         coach_bar.add_widget(self.lbl_coach)
         main.add_widget(coach_bar)
+
+        main.add_widget(self._make_toolbar())
 
         # Juice: the cash readout rolls up/down toward its target instead of jumping.
         self._cash_shown = float(self.controller.hud().cash_value)
@@ -213,7 +269,7 @@ class RealMogulApp(App):
             self._cash_shown = self._cash_target
         else:
             self._cash_shown += (self._cash_target - self._cash_shown) * min(1.0, dt * 7.0)
-        self.lbl_cash.text = f"Cash ${self._cash_shown:,.0f}"
+        self.lbl_cash.text = f"${self._cash_shown:,.0f}"
 
     def on_start(self):
         if self._shot:
@@ -241,14 +297,15 @@ class RealMogulApp(App):
     # ----------------------------------------------------------------- refresh
     def refresh(self):
         h = self.controller.hud()
-        self.lbl_month.text = f"Month {h.month}/{h.month_limit}"
+        self.lbl_month.text = f"{h.month}/{h.month_limit}"
         self._cash_target = float(h.cash_value)  # animated by _tick_cash
         self.btn_deals.text = f"Deals ({h.deals})" if h.deals else "Deals"
-        self.lbl_networth.text = f"Net worth {h.net_worth}"
-        self.lbl_objective.text = h.objective
+        self.lbl_networth.text = h.net_worth
+        self.lbl_objective.text = f"GOAL   {h.objective}"
         self.progress.value = h.progress
-        self.lbl_mastery.text = f"Mastery {self.controller.mastery():.0%}"
-        self.lbl_crews.text = f"Crews {h.crews}"
+        self.lbl_progress_pct.text = f"{h.progress:.0%}"
+        self.lbl_mastery.text = f"{self.controller.mastery():.0%}"
+        self.lbl_crews.text = h.crews
         self._refresh_coach(h.message)
         self.board.set_tiles(self.controller.board())
         self._refresh_deal()
@@ -275,35 +332,57 @@ class RealMogulApp(App):
         body.add_widget(_hud_label(lesson.how_pros_avoid, color=theme.TEXT_MUTED, size=13))
         Popup(title=lesson.title, content=body, size_hint=(0.6, 0.45)).open()
 
+    _PRIMARY_ACTIONS = {
+        "buy",
+        "renovate",
+        "open_upgrades",
+        "develop",
+        "amenity_park",
+        "repair",
+    }
+
     def _refresh_deal(self):
         self.deal_panel.clear_widgets()
         deal = self.controller.selected_deal()
         if deal is None:
-            self.deal_panel.add_widget(
-                _hud_label("Tap a lot to scout a deal.", color=theme.TEXT_MUTED)
+            empty = BoxLayout(padding=22)
+            empty.add_widget(
+                _hud_label("Tap a lot on the board to scout a deal.", color=theme.TEXT_MUTED)
             )
+            self.deal_panel.add_widget(empty)
             return
-        title = _hud_label(deal.title, size=20, bold=True)
-        title.size_hint_y = None
-        title.height = 28
-        sub = _hud_label(deal.subtitle, color=theme.TEXT_MUTED, size=13)
-        sub.size_hint_y = None
-        sub.height = 20
-        self.deal_panel.add_widget(title)
-        self.deal_panel.add_widget(sub)
 
-        grid = GridLayout(cols=2, size_hint=(1, None), spacing=4)
+        # Header strip.
+        header = _panel(
+            BoxLayout(
+                orientation="vertical", size_hint=(1, None), height=60, padding=(16, 10), spacing=2
+            ),
+            theme.PANEL_BG_ALT,
+        )
+        t = _hud_label(deal.title, size=21, bold=True)
+        t.size_hint_y = None
+        t.height = 27
+        s = _hud_label(deal.subtitle, color=theme.GOLD, size=12, bold=True)
+        s.size_hint_y = None
+        s.height = 18
+        header.add_widget(t)
+        header.add_widget(s)
+        self.deal_panel.add_widget(header)
+
+        content = BoxLayout(orientation="vertical", padding=(16, 12), spacing=10)
+        grid = GridLayout(cols=2, size_hint=(1, None), spacing=(8, 7))
         grid.bind(minimum_height=grid.setter("height"))
         for label, value in deal.rows:
             term = self.controller.term_for_metric(label)
             if term is not None:
-                # Tappable metric -> opens its glossary term (every metric explained).
                 lk = Button(
-                    text=label + "  ?",
+                    text=f"{label}  ⓘ",
                     size_hint_y=None,
-                    height=24,
+                    height=26,
                     halign="left",
                     valign="middle",
+                    background_normal="",
+                    background_down="",
                     background_color=(0, 0, 0, 0),
                     color=theme.ACCENT,
                     font_size=13,
@@ -313,25 +392,32 @@ class RealMogulApp(App):
             else:
                 lk = _hud_label(label, color=theme.TEXT_MUTED, size=13)
                 lk.size_hint_y = None
-                lk.height = 24
-            lv = _hud_label(value, color=theme.TEXT, size=13, bold=True)
+                lk.height = 26
+            lv = _hud_label(value, color=theme.TEXT, size=14, bold=True)
             lv.halign = "right"
             lv.size_hint_y = None
-            lv.height = 24
+            lv.height = 26
             grid.add_widget(lk)
             grid.add_widget(lv)
-        self.deal_panel.add_widget(grid)
+        content.add_widget(grid)
+        content.add_widget(BoxLayout())  # spacer pushes the action buttons to the bottom
 
+        actions = BoxLayout(orientation="vertical", size_hint=(1, None), spacing=7)
+        actions.bind(minimum_height=actions.setter("height"))
         for action in deal.actions:
-            btn = Button(
-                text=action.label + ("" if action.enabled else f"  · {action.hint}"),
-                size_hint=(1, None),
-                height=42,
-                disabled=not action.enabled,
-                background_color=theme.ACCENT if action.enabled else theme.PANEL_BG_ALT,
+            color = theme.ACCENT if action.action_id in self._PRIMARY_ACTIONS else theme.BTN_BG
+            if not action.enabled:
+                color = theme.PANEL_BG_ALT
+            btn = _flat_button(
+                action.label + ("" if action.enabled else f"  · {action.hint}"), color
             )
+            btn.size_hint_y = None
+            btn.height = 44
+            btn.disabled = not action.enabled
             btn.bind(on_release=partial(self._on_action, action.action_id))
-            self.deal_panel.add_widget(btn)
+            actions.add_widget(btn)
+        content.add_widget(actions)
+        self.deal_panel.add_widget(content)
 
     # ----------------------------------------------------------------- events
     def on_tile(self, lot_id: str):

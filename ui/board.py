@@ -58,7 +58,9 @@ class BoardWidget(Widget):
             self.redraw()
 
     def _origin(self) -> tuple[float, float]:
-        return self.x + self.width * 0.34, self.y + self.height * 0.74
+        # Center the diamond cluster: shift right to balance the iso skew, and sit
+        # high enough that the 3x3 grid uses the vertical space without clipping.
+        return self.x + self.width * 0.46, self.y + self.height * 0.62
 
     def _pop_scale(self, lot_id: str) -> float:
         t = self._pop.get(lot_id)
