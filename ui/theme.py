@@ -37,7 +37,10 @@ TILE_H = 100
 # --- Style-bible palette (warm cozy isometric); see assets_src/STYLE_BIBLE.md ---
 GROUND = (0.50, 0.69, 0.41, 1)  # grass
 GROUND_FORSALE = (0.79, 0.65, 0.42, 1)  # bare/path for an unowned lot
+EARTH = (0.34, 0.26, 0.19, 1)  # exposed dirt on the raised plot's sides
+DOOR = (0.26, 0.18, 0.13, 1)  # building door
 SHADOW = (0, 0, 0, 0.22)
+GROUND_H = 11  # raised-plot thickness (gives each lot a 3D base)
 WINDOW_LIT = (1.00, 0.85, 0.55, 1)
 WINDOW_DARK = (0.18, 0.22, 0.28, 1)
 OUTLINE = (0.12, 0.13, 0.16, 1)

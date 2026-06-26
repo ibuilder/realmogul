@@ -91,6 +91,8 @@ class BoardWidget(Widget):
                 if t.selected:
                     sprites.draw_selection_ring(cx, cy, pulse)
                 if t.asset_class is not None:
+                    # Deterministic subtle hue variation per lot so rows differ.
+                    tint = ((hash(t.lot_id) % 13) - 6) / 100.0
                     sprites.draw_building(
                         cx,
                         cy,
@@ -99,6 +101,7 @@ class BoardWidget(Widget):
                         condition=t.condition,
                         lit=t.lit,
                         scale=self._pop_scale(t.lot_id),
+                        tint=tint,
                     )
                 elif t.empty:
                     sprites.draw_land_marker(cx, cy)

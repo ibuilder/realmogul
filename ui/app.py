@@ -22,6 +22,7 @@ from pathlib import Path
 
 os.environ.setdefault("KIVY_NO_ARGS", "1")
 
+from kivy.animation import Animation  # noqa: E402
 from kivy.app import App  # noqa: E402
 from kivy.clock import Clock  # noqa: E402
 from kivy.core.window import Window  # noqa: E402
@@ -33,12 +34,14 @@ from kivy.uix.gridlayout import GridLayout  # noqa: E402
 from kivy.uix.label import Label  # noqa: E402
 from kivy.uix.popup import Popup  # noqa: E402
 from kivy.uix.progressbar import ProgressBar  # noqa: E402
+from kivy.uix.screenmanager import FadeTransition, Screen, ScreenManager  # noqa: E402
 from kivy.uix.scrollview import ScrollView  # noqa: E402
 from kivy.uix.textinput import TextInput  # noqa: E402
 
 from education.glossary import get_term  # noqa: E402
 from engine.assets.upgrades import UPGRADE_CATALOG  # noqa: E402
-from engine.progression.campaign import build_level_one  # noqa: E402
+from engine.progression.campaign import build_level_one, campaign_levels  # noqa: E402
+from engine.progression.challenge import daily_challenge  # noqa: E402
 from engine.progression.offline import compute_offline_earnings  # noqa: E402
 from engine.save.store import load_from_dict, save_to_json, saved_at_of  # noqa: E402
 from monetization import (  # noqa: E402
@@ -96,40 +99,24 @@ def _hud_label(text: str, color=theme.TEXT, size=15, bold=False) -> Label:
 class RealMogulApp(App):
     def __init__(self, shot: bool = False, billing_provider=None, **kwargs):
         super().__init__(**kwargs)
-        self.controller = GameController(build_level_one())
         self._shot = shot
+        self.controller = None  # created when a level is started
+        self._offline = None
+        self._cash_scheduled = False
         # Monetization: a provider is injected on-device (see nativebridge); on
         # desktop/web it defaults to the mock store. Entitlements persist + reconcile.
         secret = "dev-secret-change-me"
         provider = billing_provider or MockBillingProvider(secret)
         self.monet = MonetizationManager(
-            provider,
-            mock_secret=secret,
-            save_path=Path("ui/_entitlements.json"),
+            provider, mock_secret=secret, save_path=Path("ui/_entitlements.json")
         )
         self.monet.reconcile()
         self.sounds = SoundBank()
-
-        # Save/resume + 'while you were away'. Disabled in --shot so captures are
-        # deterministic and don't pick up a stale save.
         self._persist = not shot
         self._save_path = Path("ui/_savegame.json")
-        self._offline = None
-        # A corrupt/incompatible save just starts a fresh game.
-        if self._persist and self._save_path.exists():
-            with contextlib.suppress(Exception):
-                env = json.loads(self._save_path.read_text())
-                session = load_from_dict(env)
-                self.controller.session = session
-                ts = saved_at_of(env)
-                if ts is not None:
-                    off = compute_offline_earnings(session, time.time() - ts)
-                    if off.worthwhile:
-                        session.cash += off.amount
-                        self._offline = off
 
     def _save_game(self):
-        if not self._persist:
+        if not self._persist or self.controller is None:
             return
         with contextlib.suppress(Exception):
             self._save_path.write_text(save_to_json(self.controller.session, saved_at=time.time()))
@@ -201,52 +188,176 @@ class RealMogulApp(App):
         return bar
 
     def _make_toolbar(self):
-        bar = _panel(
-            BoxLayout(
-                orientation="horizontal", size_hint=(1, None), height=50, padding=(12, 7), spacing=8
-            ),
-            theme.TOOLBAR_BG,
-        )
+        # Horizontally scrollable so it never overflows on a narrow / phone screen.
+        outer = _panel(BoxLayout(size_hint=(1, None), height=50, padding=(10, 7)), theme.TOOLBAR_BG)
+        bar = BoxLayout(orientation="horizontal", size_hint=(None, 1), spacing=8)
+        bar.bind(minimum_width=bar.setter("width"))
+
+        btn_next = _flat_button("Advance month  ▸", theme.PRIMARY, width=180, font_size=15)
+        btn_next.bind(on_release=lambda *_: self.on_advance())
+        bar.add_widget(btn_next)
         self.btn_deals = _flat_button("Deals", theme.GOLD, width=104)
         self.btn_deals.color = (0.1, 0.1, 0.1, 1)
         self.btn_deals.bind(on_release=lambda *_: self.open_opportunities())
-        specs = [
+        bar.add_widget(self.btn_deals)
+        for text, cb in (
             ("Hire crew", self._on_hire),
             ("Advisors", self.open_advisors),
             ("Store", self.open_store),
             ("The Closet", self.open_glossary),
             ("Explain deal", self.open_explain),
-        ]
-        bar.add_widget(self.btn_deals)
-        for text, cb in specs:
+            ("Menu", self._to_menu),
+        ):
             btn = _flat_button(text, theme.BTN_BG, width=112)
             btn.bind(on_release=lambda _w, c=cb: c())
             bar.add_widget(btn)
-        bar.add_widget(BoxLayout())  # flexible spacer pushes the primary action right
-        btn_next = _flat_button("Advance month  ▸", theme.PRIMARY, width=190, font_size=15)
-        btn_next.bind(on_release=lambda *_: self.on_advance())
-        bar.add_widget(btn_next)
-        return bar
+
+        scroll = ScrollView(do_scroll_x=True, do_scroll_y=False, bar_width=0)
+        scroll.add_widget(bar)
+        outer.add_widget(scroll)
+        return outer
+
+    def _to_menu(self):
+        self._save_game()
+        self.sm.current = "menu"
+
+    def _apply_responsive(self):
+        """Stack the board above the panel on narrow (phone-ish) widths."""
+        narrow = Window.width < 860
+        self.mid.orientation = "vertical" if narrow else "horizontal"
+        self.board.size_hint = (1, 0.55) if narrow else (0.62, 1)
+        self.deal_panel.size_hint = (1, 0.45) if narrow else (0.38, 1)
 
     def build(self):
-        root = FloatLayout()
+        self.sm = ScreenManager(transition=FadeTransition(duration=0.22))
+        self.sm.add_widget(self._build_menu_screen())
+        if self._shot:  # capture goes straight into a fresh level 1
+            self._start_game(build_level_one())
+        return self.sm
+
+    # ----------------------------------------------------------------- menu
+    def _build_menu_screen(self):
+        screen = Screen(name="menu")
+        bg = _panel(BoxLayout(orientation="vertical"), theme.BG)
+        col = BoxLayout(
+            orientation="vertical", size_hint=(None, None), width=520, spacing=10, padding=(0, 40)
+        )
+        col.bind(minimum_height=col.setter("height"))
+        col.pos_hint = {"center_x": 0.5, "center_y": 0.5}
+
+        title = Label(
+            text="REAL MOGUL",
+            font_size=48,
+            bold=True,
+            color=theme.GOLD,
+            size_hint_y=None,
+            height=64,
+        )
+        tag = Label(
+            text="Buy low. Build smart. Learn the game while you play it.",
+            font_size=15,
+            color=theme.TEXT_MUTED,
+            size_hint_y=None,
+            height=28,
+        )
+        col.add_widget(title)
+        col.add_widget(tag)
+        col.add_widget(BoxLayout(size_hint_y=None, height=14))
+
+        has_save = self._persist and self._save_path.exists()
+        if has_save:
+            cont = _flat_button("▸  Continue", theme.PRIMARY, font_size=17)
+            cont.size_hint_y = None
+            cont.height = 52
+            cont.bind(on_release=lambda *_: self._continue_game())
+            col.add_widget(cont)
+
+        col.add_widget(
+            Label(
+                text="CAMPAIGN",
+                font_size=12,
+                bold=True,
+                color=theme.TEXT_MUTED,
+                size_hint_y=None,
+                height=24,
+            )
+        )
+        for i, level in enumerate(campaign_levels()):
+            btn = _flat_button(
+                f"{i + 1}.  {level.name}   —   {level.description}",
+                theme.BTN_BG if i else theme.ACCENT,
+            )
+            btn.size_hint_y = None
+            btn.height = 46
+            btn.halign = "center"
+            btn.bind(on_release=lambda _w, lv=level: self._start_game(lv))
+            col.add_widget(btn)
+
+        daily = _flat_button("🗓  Daily Challenge", theme.ACCENT_DIM)
+        daily.size_hint_y = None
+        daily.height = 46
+        daily.bind(on_release=lambda *_: self._start_game(self._todays_challenge()))
+        col.add_widget(BoxLayout(size_hint_y=None, height=8))
+        col.add_widget(daily)
+
+        anchor = FloatLayout()
+        anchor.add_widget(col)
+        bg.add_widget(anchor)
+        screen.add_widget(bg)
+        return screen
+
+    def _todays_challenge(self):
+        # A stable per-day index so the day's challenge is the same for everyone.
+        return daily_challenge(int(time.time() // 86_400))
+
+    def _continue_game(self):
+        with contextlib.suppress(Exception):
+            env = json.loads(self._save_path.read_text())
+            session = load_from_dict(env)
+            ts = saved_at_of(env)
+            if ts is not None:
+                off = compute_offline_earnings(session, time.time() - ts)
+                if off.worthwhile:
+                    session.cash += off.amount
+                    self._offline = off
+            self._start_game(build_level_one(), resume_session=session)
+            return
+        self._start_game(build_level_one())  # corrupt save -> fresh
+
+    # ----------------------------------------------------------------- game screen
+    def _start_game(self, level, resume_session=None):
+        self.controller = GameController(level)
+        if resume_session is not None:
+            self.controller.session = resume_session
+        if not self.sm.has_screen("game"):
+            game = Screen(name="game")
+            game.add_widget(self._build_game_root())
+            self.sm.add_widget(game)
+        if not self._cash_scheduled:
+            self._cash_scheduled = True
+            Clock.schedule_interval(self._tick_cash, 1 / 30.0)
+        self._cash_shown = float(self.controller.hud().cash_value)
+        self._cash_target = self._cash_shown
+        self.sm.current = "game"
+        self.refresh()
+        if self._offline is not None and not self._shot:
+            Clock.schedule_once(lambda dt: self._show_offline(), 0.5)
+
+    def _build_game_root(self):
         main = BoxLayout(orientation="vertical", size_hint=(1, 1))
-        root.add_widget(main)
+        self.status_bar = self._make_status_bar()
+        main.add_widget(self.status_bar)
 
-        main.add_widget(self._make_status_bar())
-
-        # Middle: board + deal panel
-        mid = BoxLayout(orientation="horizontal", size_hint=(1, 1))
+        self.mid = BoxLayout(orientation="horizontal", size_hint=(1, 1))
         self.board = BoardWidget(on_tile=self.on_tile, size_hint=(0.62, 1))
-        mid.add_widget(self.board)
+        self.mid.add_widget(self.board)
         self.deal_panel = _panel(
             BoxLayout(orientation="vertical", size_hint=(0.38, 1), padding=0, spacing=0),
             theme.PANEL_BG,
         )
-        mid.add_widget(self.deal_panel)
-        main.add_widget(mid)
+        self.mid.add_widget(self.deal_panel)
+        main.add_widget(self.mid)
 
-        # Coach strip — mentor tips and status messages.
         self.lbl_coach = _hud_label("", color=theme.TEXT, size=13)
         coach_bar = _panel(
             BoxLayout(size_hint=(1, None), height=40, padding=(16, 6)), theme.PANEL_BG_ALT
@@ -254,15 +365,30 @@ class RealMogulApp(App):
         coach_bar.add_widget(self.lbl_coach)
         main.add_widget(coach_bar)
 
-        main.add_widget(self._make_toolbar())
+        self.toolbar = self._make_toolbar()
+        main.add_widget(self.toolbar)
+        Window.bind(on_resize=lambda *_: self._apply_responsive())
+        Clock.schedule_once(lambda dt: self._apply_responsive(), 0)
 
-        # Juice: the cash readout rolls up/down toward its target instead of jumping.
-        self._cash_shown = float(self.controller.hud().cash_value)
-        self._cash_target = self._cash_shown
-        Clock.schedule_interval(self._tick_cash, 1 / 30.0)
+        # Overlay for floating effects (e.g. +$ on cash gains).
+        self._overlay = FloatLayout()
+        self._overlay.add_widget(main)
+        return self._overlay
 
-        self.refresh()
-        return root
+    def _float_cash(self, amount: float):
+        lbl = Label(
+            text=f"+${amount:,.0f}",
+            font_size=20,
+            bold=True,
+            color=theme.GOLD,
+            size_hint=(None, None),
+            size=(160, 30),
+            pos=(96, Window.height - 78),
+        )
+        self._overlay.add_widget(lbl)
+        anim = Animation(y=lbl.y + 40, opacity=0.0, duration=0.9, t="out_quad")
+        anim.bind(on_complete=lambda *_: self._overlay.remove_widget(lbl))
+        anim.start(lbl)
 
     def _tick_cash(self, dt):
         if abs(self._cash_target - self._cash_shown) < 1:
@@ -273,9 +399,7 @@ class RealMogulApp(App):
 
     def on_start(self):
         if self._shot:
-            Clock.schedule_once(lambda dt: self._run_capture(), 1.0)
-        elif self._offline is not None:
-            Clock.schedule_once(lambda dt: self._show_offline(), 0.6)
+            Clock.schedule_once(lambda dt: self._run_capture(), 1.2)
 
     def _show_offline(self):
         off = self._offline
@@ -297,6 +421,11 @@ class RealMogulApp(App):
     # ----------------------------------------------------------------- refresh
     def refresh(self):
         h = self.controller.hud()
+        # Float a "+$X" cue when cash jumps up (a sale, refi, deal, or offline rent).
+        prev = getattr(self, "_last_cash_seen", h.cash_value)
+        if h.cash_value - prev > 50:
+            self._float_cash(h.cash_value - prev)
+        self._last_cash_seen = h.cash_value
         self.lbl_month.text = f"{h.month}/{h.month_limit}"
         self._cash_target = float(h.cash_value)  # animated by _tick_cash
         self.btn_deals.text = f"Deals ({h.deals})" if h.deals else "Deals"
@@ -423,6 +552,9 @@ class RealMogulApp(App):
     def on_tile(self, lot_id: str):
         self.controller.select(lot_id)
         self.refresh()
+        # Quick fade so the panel feels responsive when a new lot is selected.
+        self.deal_panel.opacity = 0.25
+        Animation(opacity=1.0, duration=0.16).start(self.deal_panel)
 
     def _on_action(self, action_id: str, *_):
         if action_id == "open_upgrades":
@@ -690,7 +822,8 @@ class RealMogulApp(App):
         # export_to_png renders synchronously to an FBO, so each shot matches its
         # label (no double-buffer lag, unlike Window.screenshot).
         self._cap_queue = [
-            ("01_initial", None),
+            ("00_menu", lambda: setattr(self.sm, "current", "menu")),
+            ("01_initial", lambda: setattr(self.sm, "current", "game")),
             ("02_select_coach", lambda: self.on_tile("sfr-3")),
             ("03_explain", lambda: self.open_explain()),
             ("04_glossary", lambda: (self._dismiss_explain(), self.open_glossary())),
