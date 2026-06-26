@@ -1,0 +1,35 @@
+name: Android build
+
+# Manual + tag-triggered: a full buildozer run is slow and toolchain-heavy, so
+# it doesn't gate every push (that's what ci.yml is for).
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  apk:
+    name: Debug APK (Dockerized buildozer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build buildozer image
+        run: docker build -f docker/Dockerfile.buildozer -t realmogul-buildozer .
+
+      - name: Build debug APK
+        run: |
+          docker run --rm -v "$PWD":/home/user/app realmogul-buildozer \
+            buildozer -v android debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: realmogul-debug-apk
+          path: bin/*.apk
+          if-no-files-found: error
+
+  # iOS needs a macOS runner + Apple signing secrets; added when those exist.
+  # ios:
+  #   runs-on: macos-14
+  #   steps: [ checkout, pip install kivy-ios, toolchain build python3 kivy, ... ]

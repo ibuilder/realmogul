@@ -18,7 +18,12 @@ engine/        PURE PYTHON. No UI, no platform, no I/O side effects beyond save/
 education/      Reads from engine outputs. Generates explanations. No UI imports.
 monetization/   Catalog + entitlement state behind interfaces. No platform code.
 ui/             Presentation only. Imports engine/education/monetization. Thin.
-platform/       The ONLY place native code lives (billing bridges, ads, analytics).
+nativebridge/   The ONLY place native code lives (billing bridges, ads, analytics).
+                This is the brief's "platform/" layer, renamed: a package literally
+                named `platform` shadows the stdlib `platform` module (Kivy imports
+                it) and breaks the app. Native imports (pyjnius/pyobjus) are lazy so
+                modules import on desktop; only instantiating a real bridge off-device
+                raises. The provider is injected at startup (provider_for_platform).
 tools/          Headless dev tooling (balance sim, atlas packer, deal replay).
 tests/          pytest. Engine coverage target >= 90%.
 ```
@@ -28,9 +33,9 @@ tests/          pytest. Engine coverage target >= 90%.
 - `engine/` imports **nothing** from `ui/`, `platform/`, `monetization/`,
   `education/`. It is self-contained.
 - `education/`, `monetization/` may import `engine/`. Not `ui/` or `platform/`.
-- `ui/` may import `engine/`, `education/`, `monetization/`. Never `platform/`
-  directly — go through an interface.
-- `platform/` implements interfaces declared in `monetization/` (and adapters
+- `ui/` may import `engine/`, `education/`, `monetization/`. Never `nativebridge/`
+  directly — a provider is injected at startup (see `main.py`).
+- `nativebridge/` implements interfaces declared in `monetization/` (and adapters
   for ads/analytics). Engine never knows it exists.
 
 A unit test (`tests/test_architecture.py`) asserts these boundaries by scanning

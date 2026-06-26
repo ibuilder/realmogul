@@ -66,14 +66,16 @@ def _hud_label(text: str, color=theme.TEXT, size=15, bold=False) -> Label:
 
 
 class RealMogulApp(App):
-    def __init__(self, shot: bool = False, **kwargs):
+    def __init__(self, shot: bool = False, billing_provider=None, **kwargs):
         super().__init__(**kwargs)
         self.controller = GameController(build_level_one())
         self._shot = shot
-        # Monetization: a mock store for desktop; entitlements persist + reconcile.
+        # Monetization: a provider is injected on-device (see nativebridge); on
+        # desktop/web it defaults to the mock store. Entitlements persist + reconcile.
         secret = "dev-secret-change-me"
+        provider = billing_provider or MockBillingProvider(secret)
         self.monet = MonetizationManager(
-            MockBillingProvider(secret),
+            provider,
             mock_secret=secret,
             save_path=Path("ui/_entitlements.json"),
         )
