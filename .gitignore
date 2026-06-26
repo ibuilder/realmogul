@@ -28,6 +28,7 @@ bin/
 # Generated screenshots / spike artifacts
 ui/_shots/
 ui/_entitlements.json
+ui/_savegame.json
 spikes/*.png
 
 # Editors / OS

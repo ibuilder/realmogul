@@ -200,6 +200,17 @@ class GameSession:
             equity += value - balance
         return self.cash + equity
 
+    def monthly_cash_flow(self) -> float:
+        """Net operating cash this portfolio throws off per month (NOI − debt service)."""
+        total = 0.0
+        for h in self.holdings.values():
+            if h.property_ is None:
+                continue
+            total += h.property_.annual_noi(self.effective_market) / 12.0
+            if h.loan is not None:
+                total -= h.loan.monthly_payment
+        return total
+
     def portfolio_noi(self) -> float:
         market = self.effective_market
         return sum(

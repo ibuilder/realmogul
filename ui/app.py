@@ -11,8 +11,11 @@ Screenshot: python -m ui --shot   (captures a scripted sequence to ui/_shots/)
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import sys
+import time
 from functools import partial
 from pathlib import Path
 
@@ -35,6 +38,8 @@ from kivy.uix.textinput import TextInput  # noqa: E402
 from education.glossary import get_term  # noqa: E402
 from engine.assets.upgrades import UPGRADE_CATALOG  # noqa: E402
 from engine.progression.campaign import build_level_one  # noqa: E402
+from engine.progression.offline import compute_offline_earnings  # noqa: E402
+from engine.save.store import load_from_dict, save_to_json, saved_at_of  # noqa: E402
 from monetization import (  # noqa: E402
     MockBillingProvider,
     MonetizationManager,
@@ -86,6 +91,30 @@ class RealMogulApp(App):
         )
         self.monet.reconcile()
         self.sounds = SoundBank()
+
+        # Save/resume + 'while you were away'. Disabled in --shot so captures are
+        # deterministic and don't pick up a stale save.
+        self._persist = not shot
+        self._save_path = Path("ui/_savegame.json")
+        self._offline = None
+        # A corrupt/incompatible save just starts a fresh game.
+        if self._persist and self._save_path.exists():
+            with contextlib.suppress(Exception):
+                env = json.loads(self._save_path.read_text())
+                session = load_from_dict(env)
+                self.controller.session = session
+                ts = saved_at_of(env)
+                if ts is not None:
+                    off = compute_offline_earnings(session, time.time() - ts)
+                    if off.worthwhile:
+                        session.cash += off.amount
+                        self._offline = off
+
+    def _save_game(self):
+        if not self._persist:
+            return
+        with contextlib.suppress(Exception):
+            self._save_path.write_text(save_to_json(self.controller.session, saved_at=time.time()))
 
     # ----------------------------------------------------------------- build
     def build(self):
@@ -189,6 +218,25 @@ class RealMogulApp(App):
     def on_start(self):
         if self._shot:
             Clock.schedule_once(lambda dt: self._run_capture(), 1.0)
+        elif self._offline is not None:
+            Clock.schedule_once(lambda dt: self._show_offline(), 0.6)
+
+    def _show_offline(self):
+        off = self._offline
+        body = BoxLayout(orientation="vertical", padding=14, spacing=8)
+        body.add_widget(
+            _hud_label(f"You were away about {off.hours_away:.1f}h.", size=15, bold=True)
+        )
+        body.add_widget(
+            _hud_label(
+                f"Your portfolio collected ${off.amount:,.0f} in rent "
+                f"({off.months_credited:.1f} months' worth).",
+                color=theme.GOLD,
+                size=14,
+            )
+        )
+        self.sounds.play("cash")
+        Popup(title="While you were away", content=body, size_hint=(0.55, 0.35)).open()
 
     # ----------------------------------------------------------------- refresh
     def refresh(self):
@@ -205,6 +253,7 @@ class RealMogulApp(App):
         self.board.set_tiles(self.controller.board())
         self._refresh_deal()
         self._maybe_show_lesson()
+        self._save_game()  # autosave after every change (records a timestamp)
 
     def _refresh_coach(self, fallback: str):
         tip = self.controller.coach_tip()

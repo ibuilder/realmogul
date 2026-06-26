@@ -81,6 +81,15 @@ class AmenityDefaults:
 
 
 @dataclass(frozen=True)
+class OfflineDefaults:
+    """'While you were away' catch-up earnings (Wave 2). Bounded and never
+    negative so time away is a small reward, never a punishment."""
+
+    real_seconds_per_game_month: float = 3600.0  # 1 real hour == 1 game month of rent
+    max_months_credited: float = 6.0  # cap the catch-up so it can't trivialize play
+
+
+@dataclass(frozen=True)
 class OpportunityDefaults:
     """Surprise deals that break the optimization monotony (Wave 3)."""
 
@@ -98,3 +107,4 @@ DEFAULT_WORKFORCE = WorkforceDefaults()
 DEFAULT_UPKEEP = UpkeepDefaults()
 DEFAULT_AMENITIES = AmenityDefaults()
 DEFAULT_OPPORTUNITIES = OpportunityDefaults()
+DEFAULT_OFFLINE = OfflineDefaults()

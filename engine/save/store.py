@@ -33,14 +33,29 @@ def _checksum(state: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical(state).encode("utf-8")).hexdigest()
 
 
-def save_to_dict(session: GameSession) -> dict[str, Any]:
-    """Produce the versioned, checksummed envelope for a session."""
+def save_to_dict(session: GameSession, *, saved_at: float | None = None) -> dict[str, Any]:
+    """Produce the versioned, checksummed envelope for a session.
+
+    ``saved_at`` (a wall-clock epoch) is optional save metadata for the
+    'while you were away' feature — supplied by the UI, never by the engine, so the
+    deterministic core stays clock-free. It sits outside the checksummed state.
+    """
     state = session_to_state(session)
-    return {"version": SCHEMA_VERSION, "checksum": _checksum(state), "state": state}
+    envelope = {"version": SCHEMA_VERSION, "checksum": _checksum(state), "state": state}
+    if saved_at is not None:
+        envelope["saved_at"] = saved_at
+    return envelope
 
 
-def save_to_json(session: GameSession, *, indent: int | None = None) -> str:
-    return json.dumps(save_to_dict(session), indent=indent)
+def save_to_json(
+    session: GameSession, *, indent: int | None = None, saved_at: float | None = None
+) -> str:
+    return json.dumps(save_to_dict(session, saved_at=saved_at), indent=indent)
+
+
+def saved_at_of(envelope: dict[str, Any]) -> float | None:
+    """The wall-clock epoch a save was written, if recorded."""
+    return envelope.get("saved_at")
 
 
 def _apply_migrations(state: dict[str, Any], from_version: int) -> dict[str, Any]:

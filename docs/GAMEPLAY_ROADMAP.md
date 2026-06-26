@@ -32,7 +32,19 @@ instead of reverting in a few months) and **DSCR-gated refinance** (a cash-out r
 is now capped by coverage, not just LTV — no more negative-cashflow over-leverage
 spiral). Campaign targets were recalibrated to a robust reference agent.
 
-## Wave 2 — Retention & pacing
+## Wave 2 — Retention & pacing ✅ (offline + save/resume)
+
+- **2.1 Offline catch-up.** ✅ On reload, credit a *capped* (≤6 months), never-negative
+  slice of the rent your portfolio would have earned while away. Clock is injected by
+  the UI (`save_to_dict(saved_at=...)`), so the engine stays pure/deterministic.
+  Reshaped to fit a turn-based game rather than forcing an idle loop.
+- **2.x Save/resume.** ✅ The desktop app now autosaves the whole game and resumes it
+  (disabled in `--shot` so captures stay deterministic). Surfaced as a
+  "While you were away" popup.
+- **2.2 Fast early hook.** Largely covered by the Wave-1 economy tuning (renovate →
+  visible value, the cash counter roll-up, first deal lands fast). No separate work.
+
+### Original Wave 2 notes
 
 - **2.1 Offline catch-up.** On load, accrue capped earnings for time away
   ("while you were away, your portfolio earned $X"). Reward returning, never punish leaving.
