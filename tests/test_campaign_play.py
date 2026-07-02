@@ -6,10 +6,12 @@ from tools.play_level import play
 
 
 def test_level_one_is_winnable_headless():
-    result = play(build_level_one())
+    level = build_level_one()
+    result = play(level)
     assert result.won, f"agent failed to win; net worth {result.final_net_worth:,.0f}"
-    assert result.final_net_worth >= 320_000
-    assert result.months_played <= 60
+    # Cleared the level's own objective (not a hardcoded number that drifts on tuning).
+    assert result.final_net_worth >= level.objectives[0].target
+    assert result.months_played <= level.month_limit
 
 
 def test_playthrough_is_deterministic():

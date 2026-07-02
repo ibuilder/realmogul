@@ -35,8 +35,44 @@ def migrate_2_to_3(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def migrate_3_to_4(state: dict[str, Any]) -> dict[str, Any]:
+    """v3 -> v4: gameplay gained worker crews, amenity-driven town appeal, and
+    condition decay. Backfill the new fields with neutral defaults so old saves
+    load unchanged (3 crews, no appeal, no amenities)."""
+    state.setdefault("crews", 3)
+    town = state.get("town", {})
+    town.setdefault("appeal", 0.0)
+    for lot in town.get("lots", {}).values():
+        lot.setdefault("amenity", None)
+    for holding in state.get("holdings", {}).values():
+        for work in holding.get("pending", []):
+            work.setdefault("amenity_type", None)
+    return state
+
+
+def migrate_4_to_5(state: dict[str, Any]) -> dict[str, Any]:
+    """v4 -> v5: gameplay gained random opportunities (distressed deals / buyouts)
+    on a separate RNG stream. Old saves simply have none yet; the loader re-forks
+    the opportunity stream from the main RNG when ``opp_rng`` is absent."""
+    state.setdefault("opportunities", [])
+    state.setdefault("opportunity_rate", 1.0)
+    state.setdefault("opp_counter", 0)
+    return state
+
+
+def migrate_5_to_6(state: dict[str, Any]) -> dict[str, Any]:
+    """v5 -> v6: persist the derived levers (advisors + career bake into these).
+    Old saves had none hired and default levers — backfill neutrally."""
+    state.setdefault("advisors", [])
+    state.setdefault("decay_mult", 1.0)
+    return state
+
+
 # version N -> (N+1) transform. Extend as the schema evolves.
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: migrate_1_to_2,
     2: migrate_2_to_3,
+    3: migrate_3_to_4,
+    4: migrate_4_to_5,
+    5: migrate_5_to_6,
 }

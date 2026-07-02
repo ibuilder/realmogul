@@ -1,0 +1,19 @@
+# Reproducible Android builds. The Android SDK/NDK toolchain is finicky — pinning
+# it in a container is what keeps CI builds repeatable (brief §9, §12).
+#
+# Build the image:   docker build -f docker/Dockerfile.buildozer -t realmogul-buildozer .
+# Build the APK:      docker run --rm -v "$PWD":/home/user/app realmogul-buildozer \
+#                       buildozer -v android debug
+# Output lands in bin/.
+
+FROM kivy/buildozer:latest
+
+# Run as the image's non-root user against a mounted copy of the repo.
+WORKDIR /home/user/app
+
+# Warm the python-for-android dependency cache by priming requirements. The real
+# build mounts the source at run time so code changes don't bust the image.
+ENV BUILDOZER_WARN_ON_ROOT=0
+
+# Default to a debug APK; override the command for release/AAB.
+CMD ["buildozer", "-v", "android", "debug"]

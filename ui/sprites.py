@@ -46,12 +46,33 @@ def _diamond(cx: float, cy: float, hw: float, hh: float) -> tuple[Point, Point, 
 
 
 def draw_ground(cx: float, cy: float, for_sale: bool) -> None:
+    """A raised plot: a grass/earth top diamond with visible dirt sides, so each
+    lot reads as a little 3D tile rather than a flat decal."""
     hw, hh = theme.TILE_FOOT_W / 2, theme.TILE_FOOT_H / 2
+    h = theme.GROUND_H
     back, right, front, left = _diamond(cx, cy, hw, hh)
+    # Dirt sides (the two faces of the plot the camera sees), extruded downward.
+    _quad(
+        left, front, (front[0], front[1] - h), (left[0], left[1] - h), _shade(theme.EARTH[:3], 0.9)
+    )
+    _quad(
+        front,
+        right,
+        (right[0], right[1] - h),
+        (front[0], front[1] - h),
+        _shade(theme.EARTH[:3], 0.7),
+    )
+    # Grass/asphalt top.
     base = theme.GROUND_FORSALE if for_sale else theme.GROUND
     _quad(back, right, front, left, base)
-    Color(*_shade(base[:3], 0.8))
+    Color(*_shade(base[:3], 0.78))
     Line(points=[*back, *right, *front, *left, *back], width=1.1)
+    Color(*theme.OUTLINE)
+    # Bottom silhouette of the raised plot.
+    Line(
+        points=[left[0], left[1] - h, front[0], front[1] - h, right[0], right[1] - h],
+        width=1.0,
+    )
 
 
 def draw_shadow(cx: float, cy: float, scale: float = 1.0) -> None:
@@ -60,8 +81,13 @@ def draw_shadow(cx: float, cy: float, scale: float = 1.0) -> None:
     _quad(back, right, front, left, theme.SHADOW)
 
 
+def _face_point(a: Point, b: Point, height: float, u: float, v: float) -> Point:
+    bp = _lerp(a, b, u)
+    return (bp[0], bp[1] + height * v)
+
+
 def _windows(a: Point, b: Point, height: float, storeys: int, lit: bool) -> None:
-    """Tile a face (base edge a->b, extruded up by ``height``) with windows."""
+    """Tile a face (base edge a->b, extruded up by ``height``) with framed windows."""
     color = theme.WINDOW_LIT if lit else theme.WINDOW_DARK
     cols = 2
     pad_u, pad_v = 0.16, 0.18
@@ -71,12 +97,24 @@ def _windows(a: Point, b: Point, height: float, storeys: int, lit: bool) -> None
         for c in range(cols):
             u0 = (c + pad_u) / cols
             u1 = (c + 1 - pad_u) / cols
+            p0 = _face_point(a, b, height, u0, v0)
+            p1 = _face_point(a, b, height, u1, v0)
+            p2 = _face_point(a, b, height, u1, v1)
+            p3 = _face_point(a, b, height, u0, v1)
+            _quad(p0, p1, p2, p3, color)
+            Color(*theme.OUTLINE)  # window frame
+            Line(points=[*p0, *p1, *p2, *p3, *p0], width=1.0)
 
-            def fp(u: float, v: float) -> Point:
-                bp = _lerp(a, b, u)
-                return (bp[0], bp[1] + height * v)
 
-            _quad(fp(u0, v0), fp(u1, v0), fp(u1, v1), fp(u0, v1), color)
+def _door(a: Point, b: Point, height: float) -> None:
+    """A door on the brighter (left) face, centred at the base."""
+    p0 = _face_point(a, b, height, 0.40, 0.0)
+    p1 = _face_point(a, b, height, 0.60, 0.0)
+    p2 = _face_point(a, b, height, 0.60, min(0.5, 14.0 / height))
+    p3 = _face_point(a, b, height, 0.40, min(0.5, 14.0 / height))
+    _quad(p0, p1, p2, p3, theme.DOOR)
+    Color(*theme.OUTLINE)
+    Line(points=[*p0, *p1, *p2, *p3, *p0], width=1.0)
 
 
 def draw_building(
@@ -87,6 +125,7 @@ def draw_building(
     condition: float,
     lit: bool,
     scale: float = 1.0,
+    tint: float = 0.0,
 ) -> None:
     hw = theme.TILE_FOOT_W / 2 * (1 + (scale - 1) * 0.5)
     hh = theme.TILE_FOOT_H / 2 * (1 + (scale - 1) * 0.5)
@@ -95,6 +134,8 @@ def draw_building(
     base_rgb = theme.CLASS_COLOR.get(asset_class, (0.7, 0.7, 0.7))
     if condition < 0.85:  # tired/run-down reads darker
         base_rgb = tuple(c * (0.7 + 0.3 * condition) for c in base_rgb)
+    if tint:  # subtle per-building variation so a row of houses isn't identical
+        base_rgb = tuple(min(1.0, max(0.0, c * (1.0 + tint))) for c in base_rgb)
 
     back, right, front, left = _diamond(cx, cy, hw, hh)
 
@@ -116,6 +157,7 @@ def draw_building(
 
     _windows(left, front, height, storeys, lit)
     _windows(front, right, height, storeys, lit)
+    _door(left, front, height)
 
     # Roof / top.
     top = [(p[0], p[1] + height) for p in (back, right, front, left)]
@@ -123,6 +165,8 @@ def draw_building(
         _draw_gable(top, base_rgb)
     else:
         _quad(top[0], top[1], top[2], top[3], _shade(base_rgb, 1.18))
+        Color(*_shade(base_rgb, 1.35))  # top highlight rim
+        Line(points=[*top[3], *top[0], *top[1]], width=1.0)
 
     if asset_class == "retail":  # awning stripe along the base
         _awning(left, front, right, height)
@@ -142,6 +186,9 @@ def _draw_gable(top: list[Point], base_rgb) -> None:
     # Two roof slopes.
     _quad(left, back, ridge_back, ridge_front, _shade(base_rgb, 1.25))
     _quad(front, right, ridge_back, ridge_front, _shade(base_rgb, 1.05))
+    # Ridge highlight.
+    Color(*_shade(base_rgb, 1.45))
+    Line(points=[*ridge_back, *ridge_front], width=1.3)
 
 
 def _awning(left: Point, front: Point, right: Point, height: float) -> None:

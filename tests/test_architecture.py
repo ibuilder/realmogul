@@ -11,10 +11,12 @@ import pathlib
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 # layer -> set of top-level packages it is forbidden from importing
+# "nativebridge" is the brief's platform layer (renamed to avoid shadowing the
+# stdlib "platform" module). Pure layers must never import device code.
 FORBIDDEN = {
-    "engine": {"ui", "platform", "monetization", "education"},
-    "education": {"ui", "platform"},
-    "monetization": {"ui", "platform"},
+    "engine": {"ui", "platform", "nativebridge", "monetization", "education"},
+    "education": {"ui", "platform", "nativebridge"},
+    "monetization": {"ui", "platform", "nativebridge"},
 }
 
 

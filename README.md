@@ -67,7 +67,7 @@ status:
 - [x] **Phase 3** — UI vertical slice (one playable level) · Kivy (see [spike](spikes/SPIKE_FINDINGS.md))
 - [x] **Phase 4** — Education layer (glossary, mentors, mistake cards, stealth assessment) + art pass (style bible + procedural isometric buildings, juice). 5-levels-art-complete gated on Phase 7 content.
 - [x] **Phase 5** — Monetization (catalog, entitlements, MockBillingProvider, feature flags, guardrails, FastAPI receipt-verify; zero-spend completable; no pay-to-win)
-- [ ] **Phase 6** — Mobile packaging & native bridges (needs Android SDK / macOS / signing — environment-gated)
+- [~] **Phase 6** — Mobile packaging & native bridges: scaffolded (buildozer.spec, Dockerized build, CI job, `nativebridge/` billing/ads/analytics stubs, provider injection). Real on-device builds need Android SDK / macOS / signing — see [docs/PHASE6_PACKAGING.md](docs/PHASE6_PACKAGING.md).
 - [~] **Phase 7** — Content & balance: 4-level campaign (all verifiably winnable), career paths, daily/weekly challenges + leaderboard, prestige, tuned economy. Soft-launch retention metrics need real users.
 
 Do not start UI (Phase 3) until Phase 1 & 2 acceptance criteria pass.

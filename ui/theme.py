@@ -15,8 +15,15 @@ TEXT_MUTED = (0.62, 0.68, 0.75, 1)
 
 ACCENT = (0.20, 0.70, 0.55, 1)  # teal — actions, progress
 ACCENT_DIM = (0.16, 0.42, 0.38, 1)
+PRIMARY = (0.22, 0.62, 0.86, 1)  # blue — the primary call-to-action
 GOLD = (0.95, 0.78, 0.32, 1)  # cash / value
 WARN = (0.90, 0.45, 0.40, 1)  # losses, denials
+
+# Flat-button + status surfaces for the restructured chrome.
+STATUS_BG = (0.11, 0.13, 0.18, 1)
+TOOLBAR_BG = (0.13, 0.16, 0.21, 1)
+BTN_BG = (0.20, 0.24, 0.31, 1)  # neutral flat button
+BTN_BG_HL = (0.26, 0.31, 0.39, 1)
 
 TILE_OWNED = (0.20, 0.55, 0.45, 1)
 TILE_FORSALE = (0.30, 0.42, 0.55, 1)
@@ -24,13 +31,16 @@ TILE_LAND = (0.32, 0.30, 0.24, 1)
 TILE_SELECTED = (0.95, 0.78, 0.32, 1)
 TILE_OUTLINE = (0.85, 0.90, 0.92, 1)
 
-TILE_W = 150
-TILE_H = 86
+TILE_W = 178
+TILE_H = 100
 
 # --- Style-bible palette (warm cozy isometric); see assets_src/STYLE_BIBLE.md ---
 GROUND = (0.50, 0.69, 0.41, 1)  # grass
 GROUND_FORSALE = (0.79, 0.65, 0.42, 1)  # bare/path for an unowned lot
+EARTH = (0.34, 0.26, 0.19, 1)  # exposed dirt on the raised plot's sides
+DOOR = (0.26, 0.18, 0.13, 1)  # building door
 SHADOW = (0, 0, 0, 0.22)
+GROUND_H = 11  # raised-plot thickness (gives each lot a 3D base)
 WINDOW_LIT = (1.00, 0.85, 0.55, 1)
 WINDOW_DARK = (0.18, 0.22, 0.28, 1)
 OUTLINE = (0.12, 0.13, 0.16, 1)

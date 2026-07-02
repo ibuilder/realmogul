@@ -35,6 +35,9 @@ _RESIDENTIAL = frozenset({AssetClassId.SFR, AssetClassId.MULTIFAMILY, AssetClass
 _COMMERCIAL = frozenset(
     {AssetClassId.RETAIL, AssetClassId.OFFICE, AssetClassId.INDUSTRIAL, AssetClassId.MIXED_USE}
 )
+_RETAIL = frozenset({AssetClassId.RETAIL, AssetClassId.MIXED_USE})
+_OFFICE = frozenset({AssetClassId.OFFICE})
+_INDUSTRIAL = frozenset({AssetClassId.INDUSTRIAL})
 
 UPGRADE_CATALOG: dict[str, Upgrade] = {
     "renovate": Upgrade(
@@ -77,6 +80,56 @@ UPGRADE_CATALOG: dict[str, Upgrade] = {
         vacancy_delta=-0.05,
         rent_multiplier_bonus=0.10,
         allowed_classes=_COMMERCIAL,
+    ),
+    # --- deeper tree: cheaper, faster, more specialized lifts ---
+    "facade": Upgrade(
+        id="facade",
+        name="Façade Refresh",
+        cost=12_000,
+        build_months=2,
+        rent_multiplier_bonus=0.04,
+    ),
+    "solar": Upgrade(
+        id="solar",
+        name="Rooftop Solar",
+        cost=28_000,
+        build_months=3,
+        opex_ratio_delta=-0.06,
+    ),
+    "smart_home": Upgrade(
+        id="smart_home",
+        name="Smart-Home Package",
+        cost=18_000,
+        build_months=2,
+        rent_multiplier_bonus=0.06,
+        allowed_classes=_RESIDENTIAL,
+    ),
+    "signage": Upgrade(
+        id="signage",
+        name="Storefront & Signage",
+        cost=16_000,
+        build_months=2,
+        rent_multiplier_bonus=0.07,
+        vacancy_delta=-0.02,
+        allowed_classes=_RETAIL,
+    ),
+    "co_working": Upgrade(
+        id="co_working",
+        name="Flex / Co-working Fit-out",
+        cost=35_000,
+        build_months=4,
+        rent_multiplier_bonus=0.10,
+        vacancy_delta=-0.03,
+        allowed_classes=_OFFICE,
+    ),
+    "loading_dock": Upgrade(
+        id="loading_dock",
+        name="Loading Dock & Racking",
+        cost=22_000,
+        build_months=3,
+        rent_multiplier_bonus=0.06,
+        opex_ratio_delta=-0.03,
+        allowed_classes=_INDUSTRIAL,
     ),
 }
 

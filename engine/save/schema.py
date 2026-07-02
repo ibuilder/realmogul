@@ -13,7 +13,10 @@ from typing import Any
 from engine.assets.asset_class import AssetClassId
 from engine.assets.property import Property
 from engine.economy.market import MarketState
+from engine.economy_balance.constants import LendingTerms
+from engine.progression.advisors import AdvisorId
 from engine.progression.objectives import Objective, ObjectiveKind
+from engine.progression.opportunities import Opportunity
 from engine.progression.session import (
     GameSession,
     Holding,
@@ -26,7 +29,7 @@ from engine.world.lot import Lot
 from engine.world.town import Town
 from engine.world.zoning import Zoning
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 6
 
 
 # --------------------------------------------------------------------- encode
@@ -35,6 +38,7 @@ def _market_to(m: MarketState) -> dict[str, Any]:
         "interest_rate": m.interest_rate,
         "cap_rate": m.cap_rate,
         "demand_index": m.demand_index,
+        "base_rate": m.base_rate,
     }
 
 
@@ -59,6 +63,7 @@ def _lot_to(lot: Lot) -> dict[str, Any]:
         "owned": lot.owned,
         "for_sale": lot.for_sale,
         "list_price_premium": lot.list_price_premium,
+        "amenity": lot.amenity,
     }
 
 
@@ -80,6 +85,7 @@ def _pending_to(w: PendingWork) -> dict[str, Any]:
         "upgrade_id": w.upgrade_id,
         "asset_class": w.asset_class.value if w.asset_class else None,
         "units": w.units,
+        "amenity_type": w.amenity_type,
     }
 
 
@@ -108,6 +114,26 @@ def _event_to(e: TwistEvent) -> dict[str, Any]:
     }
 
 
+def _rng_to(rng) -> dict[str, Any]:
+    version, internal, gauss = rng.getstate()
+    return {"seed": rng.seed, "version": version, "internal": list(internal), "gauss_next": gauss}
+
+
+def _opportunity_to(o: Opportunity) -> dict[str, Any]:
+    return {
+        "id": o.id,
+        "kind": o.kind,
+        "expires_month": o.expires_month,
+        "headline": o.headline,
+        "lot_id": o.lot_id,
+        "discount": o.discount,
+        "premium": o.premium,
+        "asset_class": o.asset_class,
+        "units": o.units,
+        "condition": o.condition,
+    }
+
+
 def session_to_state(session: GameSession) -> dict[str, Any]:
     """Serialize the full session into a plain dict (the schema body)."""
     rng_version, internal, gauss = session.rng.getstate()
@@ -115,12 +141,30 @@ def session_to_state(session: GameSession) -> dict[str, Any]:
         "cash": session.cash,
         "month": session.month,
         "month_limit": session.month_limit,
+        "crews": session.crews,
         "won": session.won,
         "lost": session.lost,
         "log": list(session.log),
+        "opportunities": [_opportunity_to(o) for o in session.opportunities],
+        "opportunity_rate": session.opportunity_rate,
+        "opp_counter": session._opp_counter,
+        "opp_rng": _rng_to(session.opp_rng),
+        # Derived levers (career + advisors bake into these) so a reload matches
+        # exactly without re-deriving from career/advisor effects.
+        "advisors": sorted(a.value for a in session.advisors),
+        "decay_mult": session.decay_mult,
+        "build_speed": session.build_speed,
+        "selling_cost_rate": session.selling_cost_rate,
+        "lending": {
+            "max_ltv": session.lending.max_ltv,
+            "min_dscr": session.lending.min_dscr,
+            "term_months": session.lending.term_months,
+            "base_spread": session.lending.base_spread,
+        },
         "town": {
             "name": session.town.name,
             "market": _market_to(session.town.market),
+            "appeal": session.town.appeal,
             "lots": {lid: _lot_to(lot) for lid, lot in session.town.lots.items()},
         },
         "holdings": {lid: _holding_to(h) for lid, h in session.holdings.items()},
@@ -141,6 +185,7 @@ def _market_from(d: dict[str, Any]) -> MarketState:
         interest_rate=d["interest_rate"],
         cap_rate=d["cap_rate"],
         demand_index=d.get("demand_index", 1.0),
+        base_rate=d.get("base_rate"),
     )
 
 
@@ -165,6 +210,7 @@ def _lot_from(d: dict[str, Any]) -> Lot:
         owned=d["owned"],
         for_sale=d["for_sale"],
         list_price_premium=d["list_price_premium"],
+        amenity=d.get("amenity"),
     )
 
 
@@ -187,6 +233,7 @@ def _pending_from(d: dict[str, Any]) -> PendingWork:
         upgrade_id=d["upgrade_id"],
         asset_class=AssetClassId(ac) if ac else None,
         units=d["units"],
+        amenity_type=d.get("amenity_type"),
     )
 
 
@@ -218,6 +265,21 @@ def _event_from(d: dict[str, Any]) -> TwistEvent:
     )
 
 
+def _opportunity_from(d: dict[str, Any]) -> Opportunity:
+    return Opportunity(
+        id=d["id"],
+        kind=d["kind"],
+        expires_month=d["expires_month"],
+        headline=d["headline"],
+        lot_id=d["lot_id"],
+        discount=d.get("discount", 0.0),
+        premium=d.get("premium", 0.0),
+        asset_class=d.get("asset_class"),
+        units=d.get("units", 1),
+        condition=d.get("condition", 0.8),
+    )
+
+
 def state_to_session(state: dict[str, Any]) -> GameSession:
     """Rebuild a live session from a (current-version) state dict."""
     town_d = state["town"]
@@ -225,6 +287,7 @@ def state_to_session(state: dict[str, Any]) -> GameSession:
         name=town_d["name"],
         market=_market_from(town_d["market"]),
         lots={lid: _lot_from(lot) for lid, lot in town_d["lots"].items()},
+        appeal=town_d.get("appeal", 0.0),
     )
     rng_d = state["rng"]
     rng = GameRNG.from_state(
@@ -240,8 +303,30 @@ def state_to_session(state: dict[str, Any]) -> GameSession:
         rng=rng,
     )
     session.month = state["month"]
+    session.crews = state.get("crews", session.crews)
     session.won = state["won"]
     session.lost = state["lost"]
     session.log = list(state["log"])
     session.holdings = {lid: _holding_from(h) for lid, h in state["holdings"].items()}
+    session.opportunities = [_opportunity_from(o) for o in state.get("opportunities", [])]
+    session.opportunity_rate = state.get("opportunity_rate", 1.0)
+    session._opp_counter = state.get("opp_counter", 0)
+    opp = state.get("opp_rng")
+    if opp is not None:
+        session.opp_rng = GameRNG.from_state(
+            opp["seed"], (opp["version"], tuple(opp["internal"]), opp["gauss_next"])
+        )
+    # Restore derived levers (career + advisor effects already baked in).
+    session.advisors = {AdvisorId(a) for a in state.get("advisors", [])}
+    session.decay_mult = state.get("decay_mult", session.decay_mult)
+    session.build_speed = state.get("build_speed", session.build_speed)
+    session.selling_cost_rate = state.get("selling_cost_rate", session.selling_cost_rate)
+    lend = state.get("lending")
+    if lend is not None:
+        session.lending = LendingTerms(
+            max_ltv=lend["max_ltv"],
+            min_dscr=lend["min_dscr"],
+            term_months=lend["term_months"],
+            base_spread=lend["base_spread"],
+        )
     return session

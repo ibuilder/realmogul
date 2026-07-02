@@ -22,7 +22,9 @@ from education.mistakes import (
     underwater_card,
 )
 from engine.assets.asset_class import AssetClassId
+from engine.assets.upgrades import UPGRADE_CATALOG, get_upgrade
 from engine.finance.loans import LoanDecision, annual_debt_service, underwrite
+from engine.progression.advisors import ADVISORS, AdvisorId, get_advisor
 from engine.progression.campaign import CampaignLevel, new_session
 from engine.progression.session import CLOSING_COST_RATE, GameSession
 from engine.world.events import TwistKind
@@ -82,6 +84,9 @@ class HudView:
     progress: float  # 0..1 toward the (first) objective
     status: str  # playing | won | lost
     message: str
+    crews: str = ""  # "free/total" worker crews
+    cash_value: float = 0.0  # numeric, for the animated counter
+    deals: int = 0  # active opportunities
 
 
 @dataclass(frozen=True)
@@ -98,6 +103,30 @@ class DealView:
     subtitle: str
     rows: list[tuple[str, str]] = field(default_factory=list)
     actions: list[ActionView] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class OpportunityView:
+    opp_id: str
+    headline: str
+    kind: str  # "distressed" | "buyout"
+
+
+@dataclass(frozen=True)
+class UpgradeOption:
+    upgrade_id: str
+    label: str  # name + cost
+    summary: str  # what it does
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class AdvisorView:
+    advisor_id: str
+    label: str  # name · role
+    blurb: str
+    cost: str
+    hired: bool
 
 
 @dataclass(frozen=True)
@@ -148,7 +177,7 @@ class GameController:
     def board(self) -> list[TileView]:
         positions = self._layout()
         tiles: list[TileView] = []
-        market = self.session.market
+        market = self.session.effective_market
         for lot_id, lot in sorted(self.session.town.lots.items()):
             col, row = positions[lot_id]
             holding = self.session.holdings.get(lot_id)
@@ -233,7 +262,18 @@ class GameController:
             progress=progress,
             status=s.status,
             message=self.message,
+            crews=f"{s.free_crews}/{s.crews}",
+            cash_value=s.cash,
+            deals=len(s.opportunities),
         )
+
+    @staticmethod
+    def _work_hint(busy: bool, free_crew: bool) -> str:
+        if busy:
+            return "already working here"
+        if not free_crew:
+            return "no free crew"
+        return ""
 
     # -------------------------------------------------------------- finance preview
     def _finance_preview(self, lot_id: str) -> FinancePreview | None:
@@ -276,7 +316,7 @@ class GameController:
         lot = self.session.town.lots.get(lid)
         if lot is None:
             return None
-        market = self.session.market
+        market = self.session.effective_market  # includes amenity-driven demand
         holding = self.session.holdings.get(lid)
 
         # Owned, built property.
@@ -295,14 +335,26 @@ class GameController:
                 ("Equity", money(value - balance)),
                 ("Cash flow / mo", money(prop.annual_noi(market) / 12 - ds / 12)),
             ]
-            renovating = bool(holding.pending)
-            can_renovate = not renovating and "renovate" in self._affordable_upgrades(prop)
+            busy = bool(holding.pending)
+            free_crew = self.session.free_crews > 0
+            ready = not busy and free_crew
+            can_renovate = ready and "renovate" in self._affordable_upgrades(prop)
+            worn = prop.condition < 0.94
+            can_repair = ready and worn and self.session.cash >= 9_000
+            n_upgrades = len(self.available_upgrades(lid))
             actions = [
                 ActionView(
                     "renovate",
                     "Renovate ($25k, 3mo)",
                     can_renovate,
-                    "already renovating" if renovating else "",
+                    self._work_hint(busy, free_crew),
+                ),
+                ActionView("open_upgrades", f"Upgrades ({n_upgrades})", n_upgrades > 0),
+                ActionView(
+                    "repair",
+                    "Repair ($9k, 1mo)",
+                    can_repair,
+                    "" if worn else "in good shape",
                 ),
                 ActionView("refinance", "Cash-out refi", True),
                 ActionView("sell", "Sell", True),
@@ -314,13 +366,24 @@ class GameController:
                 actions=actions,
             )
 
-        # Owned empty land.
-        if lot.owned and lot.property_ is None:
+        # Owned vacant land.
+        if self.session._is_vacant_land(lid):
+            free_crew = self.session.free_crews > 0
             return DealView(
                 title=lid.upper(),
                 subtitle=f"Vacant land · {lot.zoning.value}",
-                rows=[("Zoning", lot.zoning.value), ("Status", "ready to develop")],
-                actions=[ActionView("develop", "Build 1 SFR", True)],
+                rows=[("Zoning", lot.zoning.value), ("Status", "ready to build")],
+                actions=[
+                    ActionView(
+                        "develop", "Build 1 SFR", free_crew, self._work_hint(False, free_crew)
+                    ),
+                    ActionView(
+                        "amenity_park",
+                        "Build park ($35k)",
+                        free_crew and self.session.cash >= 35_000,
+                        "lifts demand portfolio-wide",
+                    ),
+                ],
             )
 
         # For-sale property.
@@ -428,18 +491,103 @@ class GameController:
             self.coach = tip_for("first_deal")
             self._seen_first_deal = True
 
+    def hire_crew(self) -> None:
+        if self.session.hire_crew():
+            self.message = f"Hired a crew — now {self.session.crews}."
+        else:
+            self.message = "Can't afford another crew."
+
+    def opportunities(self) -> list[OpportunityView]:
+        return [OpportunityView(o.id, o.headline, o.kind) for o in self.session.opportunities]
+
+    def accept_opportunity(self, opp_id: str) -> None:
+        if self.session.accept_opportunity(opp_id):
+            self.tracker.record("irr")  # seizing a deal is a timing decision
+            self.message = "Deal seized!"
+        else:
+            self.message = "Couldn't take that deal."
+
+    # -------------------------------------------------------------- upgrades / advisors
+    @staticmethod
+    def _upgrade_summary(up) -> str:
+        bits = []
+        if up.rent_multiplier_bonus:
+            bits.append(f"+{up.rent_multiplier_bonus:.0%} rent")
+        if up.opex_ratio_delta:
+            bits.append(f"{up.opex_ratio_delta:+.0%} opex")
+        if up.vacancy_delta:
+            bits.append(f"{up.vacancy_delta:+.0%} vacancy")
+        if up.condition_set is not None:
+            bits.append("restores condition")
+        return f"{', '.join(bits)} · {up.build_months}mo"
+
+    def available_upgrades(self, lot_id: str) -> list[UpgradeOption]:
+        """Upgrades a selected owned property can still take."""
+        h = self.session.holdings.get(lot_id)
+        if h is None or h.property_ is None:
+            return []
+        prop = h.property_
+        ready = not h.pending and self.session.free_crews > 0
+        out: list[UpgradeOption] = []
+        for uid, up in UPGRADE_CATALOG.items():
+            if not up.allowed_for(prop.asset_class) or uid in prop.upgrades:
+                continue
+            enabled = ready and up.cost <= self.session.cash
+            out.append(
+                UpgradeOption(
+                    upgrade_id=uid,
+                    label=f"{up.name} (${up.cost / 1000:.0f}k)",
+                    summary=self._upgrade_summary(up),
+                    enabled=enabled,
+                )
+            )
+        return out
+
+    def advisors(self) -> list[AdvisorView]:
+        return [
+            AdvisorView(
+                advisor_id=a.id.value,
+                label=f"{a.name} · {a.role}",
+                blurb=a.blurb,
+                cost=money(a.hire_cost),
+                hired=a.id in self.session.advisors,
+            )
+            for a in ADVISORS.values()
+        ]
+
+    def hire_advisor(self, advisor_id: str) -> None:
+        if self.session.hire_advisor(AdvisorId(advisor_id)):
+            adv = get_advisor(AdvisorId(advisor_id))
+            self.message = f"Hired {adv.name} — {adv.role}."
+        else:
+            self.message = "Can't hire that advisor."
+
     def do_action(self, action_id: str) -> None:
         lid = self.selected_lot_id
         if lid is None:
             return
-        if action_id == "buy":
-            self._do_buy(lid)
-        elif action_id == "renovate":
-            if self.session.upgrade(lid, "renovate"):
+        if action_id in UPGRADE_CATALOG:
+            up = get_upgrade(action_id)
+            if self.session.upgrade(lid, action_id):
                 self.tracker.record("value_add")
-                self.message = "Renovation started — forcing NOI up."
+                self.message = f"{up.name} started."
             else:
-                self.message = "Can't renovate now."
+                self.message = f"Can't start {up.name} now."
+        elif action_id == "buy":
+            self._do_buy(lid)
+        elif action_id == "repair":
+            self.message = (
+                "Repair started — restoring condition."
+                if self.session.repair(lid)
+                else "Can't repair now."
+            )
+        elif action_id == "amenity_park":
+            if self.session.build_amenity(lid, "park"):
+                self.tracker.record("demand")
+                self.coach = tip_for("boom_town")
+                self.message = "Park underway — it'll lift demand everywhere."
+            else:
+                self.message = "Can't build a park here."
         elif action_id == "refinance":
             proceeds = self.session.refinance(lid)
             if proceeds:
