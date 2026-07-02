@@ -15,6 +15,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import random
 import sys
 import time
 from functools import partial
@@ -26,7 +27,7 @@ from kivy.animation import Animation  # noqa: E402
 from kivy.app import App  # noqa: E402
 from kivy.clock import Clock  # noqa: E402
 from kivy.core.window import Window  # noqa: E402
-from kivy.graphics import Color, Rectangle  # noqa: E402
+from kivy.graphics import Color, Ellipse, Rectangle  # noqa: E402
 from kivy.uix.boxlayout import BoxLayout  # noqa: E402
 from kivy.uix.button import Button  # noqa: E402
 from kivy.uix.floatlayout import FloatLayout  # noqa: E402
@@ -37,6 +38,7 @@ from kivy.uix.progressbar import ProgressBar  # noqa: E402
 from kivy.uix.screenmanager import FadeTransition, Screen, ScreenManager  # noqa: E402
 from kivy.uix.scrollview import ScrollView  # noqa: E402
 from kivy.uix.textinput import TextInput  # noqa: E402
+from kivy.uix.widget import Widget  # noqa: E402
 
 from education.glossary import get_term  # noqa: E402
 from engine.assets.upgrades import UPGRADE_CATALOG  # noqa: E402
@@ -56,6 +58,46 @@ from ui.controller import GameController  # noqa: E402
 
 # Actions that are "work" (a crew starts something) vs money moving.
 _WORK_ACTIONS = set(UPGRADE_CATALOG) | {"repair", "amenity_park", "develop"}
+
+# A distinct colour per mentor for their coach-bar portrait.
+_MENTOR_COLORS = {
+    "flipper": theme.ACCENT,
+    "broker": theme.PRIMARY,
+    "banker": theme.GOLD,
+    "syndicator": (0.71, 0.51, 0.55, 1),
+}
+
+
+class MentorAvatar(FloatLayout):
+    """A little round portrait chip (mentor's colour + initial) for the coach bar."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._initial = Label(text="", bold=True, font_size=16, color=(0.09, 0.11, 0.15, 1))
+        self._initial.pos_hint = {"center_x": 0.5, "center_y": 0.5}
+        self.add_widget(self._initial)
+        self._color = None
+        self.bind(pos=self._redraw, size=self._redraw)
+
+    def set_mentor(self, color, initial: str) -> None:
+        self._color = color
+        self._initial.text = initial
+        self._redraw()
+
+    def clear_mentor(self) -> None:
+        self._color = None
+        self._initial.text = ""
+        self._redraw()
+
+    def _redraw(self, *_) -> None:
+        self.canvas.before.clear()
+        if self._color is None:
+            return
+        d = max(4.0, min(self.width, self.height) - 8)
+        with self.canvas.before:
+            Color(*self._color)
+            Ellipse(pos=(self.center_x - d / 2, self.center_y - d / 2), size=(d, d))
+
 
 Window.size = (1200, 760)
 Window.clearcolor = theme.BG
@@ -329,10 +371,13 @@ class RealMogulApp(App):
         self.controller = GameController(level)
         if resume_session is not None:
             self.controller.session = resume_session
-        if not self.sm.has_screen("game"):
-            game = Screen(name="game")
-            game.add_widget(self._build_game_root())
-            self.sm.add_widget(game)
+        self._endgame_shown = False
+        # Rebuild the game screen fresh each time (so switching levels works).
+        if self.sm.has_screen("game"):
+            self.sm.remove_widget(self.sm.get_screen("game"))
+        game = Screen(name="game")
+        game.add_widget(self._build_game_root())
+        self.sm.add_widget(game)
         if not self._cash_scheduled:
             self._cash_scheduled = True
             Clock.schedule_interval(self._tick_cash, 1 / 30.0)
@@ -359,9 +404,12 @@ class RealMogulApp(App):
         main.add_widget(self.mid)
 
         self.lbl_coach = _hud_label("", color=theme.TEXT, size=13)
+        self.coach_avatar = MentorAvatar(size_hint=(None, 1), width=40)
         coach_bar = _panel(
-            BoxLayout(size_hint=(1, None), height=40, padding=(16, 6)), theme.PANEL_BG_ALT
+            BoxLayout(size_hint=(1, None), height=44, padding=(12, 5), spacing=10),
+            theme.PANEL_BG_ALT,
         )
+        coach_bar.add_widget(self.coach_avatar)
         coach_bar.add_widget(self.lbl_coach)
         main.add_widget(coach_bar)
 
@@ -444,9 +492,14 @@ class RealMogulApp(App):
     def _refresh_coach(self, fallback: str):
         tip = self.controller.coach_tip()
         if tip is not None:
-            self.lbl_coach.text = f"[{tip.mentor_name}]  {tip.text}"
+            color = _MENTOR_COLORS.get(tip.mentor_id, theme.ACCENT)
+            self.coach_avatar.set_mentor(color, tip.mentor_name[:1])
+            self.lbl_coach.text = f"[b]{tip.mentor_name}[/b]   {tip.text}"
+            self.lbl_coach.markup = True
             self.lbl_coach.color = theme.TEXT
         else:
+            self.coach_avatar.clear_mentor()
+            self.lbl_coach.markup = False
             self.lbl_coach.text = fallback
             self.lbl_coach.color = theme.TEXT_MUTED
 
@@ -636,7 +689,8 @@ class RealMogulApp(App):
         self.sounds.play("tick")
         self.refresh()
         status = self.controller.status
-        if status != "playing":
+        if status != "playing" and not self._endgame_shown:
+            self._endgame_shown = True
             self.sounds.play("win" if status == "won" else "lose")
             self.show_endgame()
 
@@ -807,14 +861,117 @@ class RealMogulApp(App):
         self._explain_popup.open()
 
     def show_endgame(self):
+        won = self.controller.status == "won"
         h = self.controller.hud()
-        msg = "Level complete!" if h.status == "won" else "Level over."
-        body = Label(
-            text=f"{msg}\n\n{h.message}\n\nNet worth: {h.net_worth}\nMonth {h.month}",
-            color=theme.TEXT,
-            halign="center",
+        s = self.controller.session
+
+        overlay = FloatLayout(size_hint=(1, 1))
+        overlay.add_widget(_panel(BoxLayout(), (0, 0, 0, 0.62)))  # scrim
+        card = _panel(
+            BoxLayout(
+                orientation="vertical",
+                padding=26,
+                spacing=12,
+                size_hint=(None, None),
+                size=(480, 380),
+            ),
+            theme.PANEL_BG_ALT,
         )
-        Popup(title=msg, content=body, size_hint=(0.5, 0.4)).open()
+        card.pos_hint = {"center_x": 0.5, "center_y": 0.5}
+
+        title = Label(
+            text="LEVEL COMPLETE!" if won else "LEVEL OVER",
+            font_size=32,
+            bold=True,
+            color=theme.GOLD if won else theme.WARN,
+            size_hint_y=None,
+            height=48,
+        )
+        sub = _hud_label(self.controller.level.name, color=theme.TEXT_MUTED, size=14)
+        sub.halign = "center"
+        sub.size_hint_y = None
+        sub.height = 22
+        card.add_widget(title)
+        card.add_widget(sub)
+
+        stats = GridLayout(cols=2, size_hint=(1, None), spacing=(10, 8), padding=(10, 12))
+        stats.bind(minimum_height=stats.setter("height"))
+        rows = [
+            ("Months played", f"{h.month}"),
+            ("Final net worth", h.net_worth),
+            ("Units owned", f"{s.units_owned()}"),
+            ("Concepts mastered", f"{self.controller.mastery():.0%}"),
+        ]
+        for k, v in rows:
+            kl = _hud_label(k, color=theme.TEXT_MUTED, size=14)
+            kl.size_hint_y = None
+            kl.height = 28
+            vl = _hud_label(v, color=theme.TEXT, size=15, bold=True)
+            vl.halign = "right"
+            vl.size_hint_y = None
+            vl.height = 28
+            stats.add_widget(kl)
+            stats.add_widget(vl)
+        card.add_widget(stats)
+        card.add_widget(BoxLayout())  # spacer
+
+        buttons = BoxLayout(orientation="horizontal", size_hint=(1, None), height=48, spacing=10)
+        nxt = self._next_campaign_level()
+        menu_btn = _flat_button("Main menu", theme.BTN_BG)
+        menu_btn.bind(on_release=lambda *_: (self._close_end(overlay), self._to_menu()))
+        buttons.add_widget(menu_btn)
+        if won and nxt is not None:
+            next_btn = _flat_button(f"Next: {nxt.name}  ▸", theme.ACCENT)
+            next_btn.bind(on_release=lambda *_: (self._close_end(overlay), self._start_game(nxt)))
+            buttons.add_widget(next_btn)
+        elif not won:
+            retry = _flat_button("Retry", theme.ACCENT)
+            retry.bind(
+                on_release=lambda *_: (
+                    self._close_end(overlay),
+                    self._start_game(self.controller.level),
+                )
+            )
+            buttons.add_widget(retry)
+        card.add_widget(buttons)
+
+        overlay.add_widget(card)
+        self._overlay.add_widget(overlay)
+        if won:
+            self._confetti(overlay)
+
+    def _close_end(self, overlay) -> None:
+        with contextlib.suppress(Exception):
+            self._overlay.remove_widget(overlay)
+
+    def _next_campaign_level(self):
+        levels = campaign_levels()
+        cur = getattr(self.controller, "level", None)
+        for i, lvl in enumerate(levels):
+            if cur is not None and lvl.id == cur.id and i + 1 < len(levels):
+                return levels[i + 1]
+        return None
+
+    def _confetti(self, overlay) -> None:
+        colors = [theme.GOLD, theme.ACCENT, theme.PRIMARY, theme.WARN, (0.71, 0.51, 0.55, 1)]
+        w, hgt = Window.width, Window.height
+        for _ in range(56):
+            piece = Widget(size_hint=(None, None), size=(9, 9))
+            piece.pos = (random.uniform(0, w), hgt + random.uniform(0, 160))
+            col = random.choice(colors)
+            with piece.canvas:
+                Color(*col)
+                rect = Rectangle(pos=piece.pos, size=piece.size)
+            piece.bind(pos=lambda inst, val, rr=rect: setattr(rr, "pos", val))
+            overlay.add_widget(piece)
+            anim = Animation(
+                y=-20,
+                x=piece.x + random.uniform(-80, 80),
+                duration=random.uniform(1.4, 3.0),
+                t="in_quad",
+            )
+            anim.bind(on_complete=lambda a, p=piece: overlay.remove_widget(p))
+            anim.start(piece)
 
     # ----------------------------------------------------------------- capture
     def _run_capture(self):
@@ -829,8 +986,9 @@ class RealMogulApp(App):
             ("04_glossary", lambda: (self._dismiss_explain(), self.open_glossary())),
             ("05_bought_coach", lambda: (self._dismiss_glossary(), self._on_action("buy"))),
             ("06_renovate", lambda: self._on_action("renovate")),
-            ("07_boom_coach", lambda: [self.on_advance() for _ in range(20)]),
+            ("07_boom_coach", lambda: [self.on_advance() for _ in range(19)]),
             ("08_store", lambda: self.open_store()),
+            ("09_win", lambda: (self._dismiss_store(), [self.on_advance() for _ in range(6)])),
         ]
         Clock.schedule_once(self._cap_tick, 1.0)
 
@@ -841,6 +999,11 @@ class RealMogulApp(App):
 
     def _dismiss_glossary(self):
         popup = getattr(self, "_glossary_popup", None)
+        if popup is not None:
+            popup.dismiss()
+
+    def _dismiss_store(self):
+        popup = getattr(self, "_store_popup", None)
         if popup is not None:
             popup.dismiss()
 
